@@ -42,10 +42,7 @@ readonly WINE_USER="crossover"
 readonly LOCAL_BIN="$HOME/.local/bin"
 readonly APPLICATIONS_DIR="$HOME/.local/share/applications"
 
-# SVG
 readonly ICONS_SCALABLE_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
-
-# PNG 256x256
 readonly ICONS_256_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
 
 readonly OFFICE_FONT_DIR="$HOME/.local/share/fonts/Office365"
@@ -1268,8 +1265,6 @@ if start_step "29-wine32-validation" "Validar uso de Wine32"; then
         fi
 
 
-        # Evitamos falsos positivos con la palabra wine
-        # dentro de wine32.
         if grep -Eq \
             '(^|[[:space:]"'\''])wine([[:space:]"'\'']|$)' \
             "$launcher"
@@ -1420,19 +1415,6 @@ fi
 
 # ============================================================
 # 33. Iconos
-#
-# IMPORTANTE:
-#
-# Los SVG deben ir en:
-#
-#   hicolor/scalable/apps
-#
-# No en:
-#
-#   hicolor/256x256/apps
-#
-# También intentamos generar PNG 256x256 si ImageMagick
-# está disponible.
 # ============================================================
 
 if start_step "33-icons" "Instalar iconos"; then
@@ -1450,14 +1432,14 @@ if start_step "33-icons" "Instalar iconos"; then
         for icon in "${ICONS[@]}"
         do
 
-            basename="$(basename "$icon")"
+            icon_basename="$(basename "$icon")"
 
             cp -f \
                 "$icon" \
-                "$ICONS_SCALABLE_DIR/$basename"
+                "$ICONS_SCALABLE_DIR/$icon_basename"
 
             chmod 644 \
-                "$ICONS_SCALABLE_DIR/$basename"
+                "$ICONS_SCALABLE_DIR/$icon_basename"
 
 
             # ------------------------------------------------
@@ -1466,7 +1448,7 @@ if start_step "33-icons" "Instalar iconos"; then
 
             if command -v convert >/dev/null 2>&1; then
 
-                png_name="${basename%.svg}.png"
+                png_name="${icon_basename%.svg}.png"
 
                 convert \
                     -background none \
@@ -1478,7 +1460,7 @@ if start_step "33-icons" "Instalar iconos"; then
 
             elif command -v magick >/dev/null 2>&1; then
 
-                png_name="${basename%.svg}.png"
+                png_name="${icon_basename%.svg}.png"
 
                 magick \
                     "$icon" \
@@ -1527,11 +1509,6 @@ if start_step "34-desktop-icons" "Corregir iconos de los archivos .desktop"; the
 
         [[ -n "$ICON_NAME" ]] || continue
 
-
-        # ----------------------------------------------------
-        # Si Icon apunta a un path absoluto antiguo, convertir
-        # a nombre de icono.
-        # ----------------------------------------------------
 
         ICON_BASENAME="$(basename "$ICON_NAME")"
 
@@ -1629,16 +1606,7 @@ fi
 
 
 # ============================================================
-# 37. Verificar DXVK
-#
-# NO dependemos de una línea concreta dentro de user.reg.
-#
-# Comprobamos:
-#
-#   1. DLLs presentes.
-#   2. DllOverrides mediante wine reg.
-#
-# Wine puede representar los overrides de distintas maneras.
+# 37. Verificar DXVK y DllOverrides
 # ============================================================
 
 if start_step "37-dxvk-overrides" "Verificar instalación de DXVK"; then
@@ -1655,7 +1623,7 @@ if start_step "37-dxvk-overrides" "Verificar instalación de DXVK"; then
 
 
     # --------------------------------------------------------
-    # 37.1 DLLs
+    # 37.1 Comprobar DLLs
     # --------------------------------------------------------
 
     for dll in "${DXVK_DLLS[@]}"
@@ -1682,151 +1650,167 @@ if start_step "37-dxvk-overrides" "Verificar instalación de DXVK"; then
 
             die "No se encontró la DLL DXVK:
 
-  $dll.dll
-
-El proceso de instalación de DXVK no quedó completo."
+  $dll.dll"
 
         fi
 
     done
 
 
-    ok "DLLs de DXVK encontradas."
+    ok "DLLs DXVK encontradas."
 
 
     # --------------------------------------------------------
-    # 37.2 Consultar DllOverrides
-    # --------------------------------------------------------
-
-    DXVK_OVERRIDE_OUTPUT="$(
-        "$WINE32_BIN" \
-            reg query \
-            'HKCU\Software\Wine\DllOverrides' \
-            2>/dev/null \
-            || true
-    )"
-
-
-    echo
-    echo "Overrides detectados:"
-    echo
-
-
-    if [[ -n "$DXVK_OVERRIDE_OUTPUT" ]]; then
-
-        echo "$DXVK_OVERRIDE_OUTPUT"
-
-    else
-
-        warn "Wine no devolvió DllOverrides mediante reg query."
-
-    fi
-
-
-    # --------------------------------------------------------
-    # 37.3 Verificación flexible
+    # 37.2 Asegurar DllOverrides
     #
-    # Aceptamos:
+    # Wine usa:
+    #
+    #   HKCU\Software\Wine\DllOverrides
+    #
+    # con entradas como:
     #
     #   d3d8 = native
-    #   d3d8 = "native"
-    #   "*d3d8" = native
-    #   "*d3d8" = "native"
+    #   d3d9 = native
     #
-    # dependiendo de cómo Wine haya generado user.reg.
     # --------------------------------------------------------
+
+    log "Configurando overrides DXVK..."
 
     for dll in "${DXVK_DLLS[@]}"
     do
 
-        if grep -Eiq \
-            '(^|[[:space:]"*])d3d8([.]dll)?["*]?[[:space:]]*=.*native' \
-            "$WINEPREFIX_PATH/user.reg" 2>/dev/null
-        then
-            :
+        CURRENT_OVERRIDE="$(
+            "$WINE32_BIN" \
+                reg query \
+                'HKCU\Software\Wine\DllOverrides' \
+                /v "$dll" \
+                2>/dev/null \
+                | awk -v dll="$dll" '
+                    BEGIN {
+                        IGNORECASE=1
+                    }
 
-        elif grep -Eiq \
-            '(^|[[:space:]"*])'"$dll"'([.]dll)?["*]?[[:space:]]*=.*native' \
-            "$WINEPREFIX_PATH/user.reg" 2>/dev/null
-        then
-            :
+                    $1 == dll && $2 == "REG_SZ" {
+                        print $3
+                        exit
+                    }
+                ' \
+                || true
+        )"
 
-        elif grep -Eiq \
-            "$dll.*native|native.*$dll" \
-            <<< "$DXVK_OVERRIDE_OUTPUT"
-        then
-            :
 
-        else
+        CURRENT_OVERRIDE="$(
+            printf '%s' "$CURRENT_OVERRIDE" |
+                tr -d '[:space:]' |
+                tr '[:upper:]' '[:lower:]'
+        )"
 
-            warn "No se pudo confirmar explícitamente el override:"
-            echo "    $dll"
 
-            warn "Las DLLs sí están presentes."
-            warn "Se continuará porque Wine/Winetricks puede haber"
-            warn "registrado el override en un formato diferente."
+        case "$CURRENT_OVERRIDE" in
 
-        fi
+            native)
+                ok "$dll = native"
+                ;;
+
+            native,builtin|builtin,native)
+                ok "$dll = $CURRENT_OVERRIDE"
+                ;;
+
+            *)
+
+                log "Configurando $dll = native..."
+
+                "$WINE32_BIN" \
+                    reg add \
+                    'HKCU\Software\Wine\DllOverrides' \
+                    /v "$dll" \
+                    /t REG_SZ \
+                    /d native \
+                    /f \
+                    >/dev/null
+
+                ;;
+
+        esac
 
     done
 
 
     # --------------------------------------------------------
-    # 37.4 Asegurar overrides manualmente
-    #
-    # Esto elimina la ambigüedad y deja el estado explícito.
+    # 37.3 Validación final de cada override
     # --------------------------------------------------------
-
-    log "Asegurando overrides DXVK..."
 
     for dll in "${DXVK_DLLS[@]}"
     do
 
-        "$WINE32_BIN" \
-            reg add \
-            'HKCU\Software\Wine\DllOverrides' \
-            /v "*.$dll" \
-            /t REG_SZ \
-            /d native \
-            /f \
-            >/dev/null 2>&1 \
-            || warn "No se pudo registrar override para $dll"
+        FINAL_OVERRIDE="$(
+            "$WINE32_BIN" \
+                reg query \
+                'HKCU\Software\Wine\DllOverrides' \
+                /v "$dll" \
+                2>/dev/null \
+                | awk -v dll="$dll" '
+                    BEGIN {
+                        IGNORECASE=1
+                    }
+
+                    $1 == dll && $2 == "REG_SZ" {
+                        print $3
+                        exit
+                    }
+                ' \
+                || true
+        )"
+
+
+        FINAL_OVERRIDE="$(
+            printf '%s' "$FINAL_OVERRIDE" |
+                tr -d '[:space:]' |
+                tr '[:upper:]' '[:lower:]'
+        )"
+
+
+        case "$FINAL_OVERRIDE" in
+
+            native)
+                ;;
+
+            native,builtin|builtin,native)
+                ;;
+
+            *)
+
+                die "No se pudo confirmar el override DXVK:
+
+  $dll
+
+Valor obtenido:
+
+  ${FINAL_OVERRIDE:-no encontrado}"
+
+                ;;
+
+        esac
 
     done
 
 
-    # --------------------------------------------------------
-    # 37.5 Comprobación final
-    # --------------------------------------------------------
+    echo
+    echo "Overrides DXVK:"
+    echo
 
-    FINAL_OVERRIDES="$(
-        "$WINE32_BIN" \
-            reg query \
-            'HKCU\Software\Wine\DllOverrides' \
-            2>/dev/null \
-            || true
-    )"
+    "$WINE32_BIN" \
+        reg query \
+        'HKCU\Software\Wine\DllOverrides' \
+        2>/dev/null \
+        | grep -Ei \
+            'd3d8|d3d9|d3d10core|d3d11|dxgi' \
+        || true
 
+    echo
 
-    for dll in "${DXVK_DLLS[@]}"
-    do
-
-        if ! grep -Eiq \
-            "$dll.*native|native.*$dll" \
-            <<< "$FINAL_OVERRIDES"
-        then
-
-            warn "Wine no mostró explícitamente el override final:"
-            echo "    $dll"
-
-        fi
-
-    done
-
-
-    ok "DXVK verificado."
-    ok "Se encontraron las DLL necesarias."
-    ok "Los overrides fueron asegurados."
+    ok "Todos los overrides DXVK están configurados."
+    ok "DXVK verificado correctamente."
 
     complete_step \
         "37-dxvk-overrides" \
@@ -1836,10 +1820,12 @@ fi
 
 
 # ============================================================
-# 38. Aceleración hardware Office
+# 38. Configurar aceleración hardware Office
 # ============================================================
 
 if start_step "38-office-graphics" "Configurar aceleración por hardware"; then
+
+    log "Configurando aceleración gráfica de Office..."
 
     "$WINE32_BIN" \
         reg add \
@@ -1847,53 +1833,156 @@ if start_step "38-office-graphics" "Configurar aceleración por hardware"; then
         /v DisableHardwareAcceleration \
         /t REG_DWORD \
         /d 0 \
-        /f \
-        >/dev/null
-
-    ok "DisableHardwareAcceleration=0."
-
-    complete_step \
-        "38-office-graphics" \
-        "Aceleración por hardware configurada."
-
-fi
+        /f
 
 
-# ============================================================
-# 39. Validar aceleración
-# ============================================================
+    # --------------------------------------------------------
+    # Verificación inmediata
+    # --------------------------------------------------------
 
-if start_step "39-office-graphics-validation" "Verificar aceleración por hardware"; then
-
-    GRAPHICS_VALUE="$(
+    GRAPHICS_VERIFY_OUTPUT="$(
         "$WINE32_BIN" \
             reg query \
             'HKCU\Software\Microsoft\Office\16.0\Common\Graphics' \
             /v DisableHardwareAcceleration \
             2>/dev/null \
-            | awk '/DisableHardwareAcceleration/ {print $NF}'
+            || true
     )"
 
 
-    if [[ "$GRAPHICS_VALUE" != "0x0" ]]; then
+    GRAPHICS_VERIFY_VALUE="$(
+        printf '%s\n' "$GRAPHICS_VERIFY_OUTPUT" |
+            awk '
+                /DisableHardwareAcceleration/ {
+                    for (i = 1; i <= NF; i++) {
+                        if ($i ~ /^0x[0-9a-fA-F]+$/) {
+                            print tolower($i)
+                            exit
+                        }
+                    }
+                }
+            ' |
+            tr -d '[:space:]'
+    )"
 
-        die "La aceleración por hardware no quedó habilitada.
 
-Valor:
+    if [[ "$GRAPHICS_VERIFY_VALUE" != "0x0" ]]; then
 
-  ${GRAPHICS_VALUE:-no encontrado}
+        die "Wine no confirmó correctamente la configuración gráfica.
+
+Valor detectado:
+
+  ${GRAPHICS_VERIFY_VALUE:-no encontrado}
 
 Esperado:
 
-  0x0"
+  0x0
+
+Salida completa:
+
+$GRAPHICS_VERIFY_OUTPUT"
 
     fi
 
-    ok "Aceleración por hardware habilitada."
+
+    ok "DisableHardwareAcceleration = 0x0."
+
+    complete_step \
+        "38-office-graphics" \
+        "Aceleración gráfica configurada."
+
+fi
+
+
+# ============================================================
+# 39. Validar configuración de aceleración
+# ============================================================
+
+if start_step "39-office-graphics-validation" "Verificar configuración de aceleración"; then
+
+    log "Verificando configuración gráfica de Office..."
+
+    GRAPHICS_QUERY="$(
+        "$WINE32_BIN" \
+            reg query \
+            'HKCU\Software\Microsoft\Office\16.0\Common\Graphics' \
+            /v DisableHardwareAcceleration \
+            2>/dev/null \
+            || true
+    )
+
+
+    echo
+    echo "Registro de Office:"
+    echo
+    echo "$GRAPHICS_QUERY"
+    echo
+
+
+    # --------------------------------------------------------
+    # Extraer exclusivamente el DWORD hexadecimal.
+    #
+    # Ejemplo:
+    #
+    # DisableHardwareAcceleration    REG_DWORD    0x0
+    #
+    # --------------------------------------------------------
+
+    GRAPHICS_VALUE="$(
+        printf '%s\n' "$GRAPHICS_QUERY" |
+            awk '
+                /DisableHardwareAcceleration/ {
+                    for (i = 1; i <= NF; i++) {
+                        if ($i ~ /^0x[0-9a-fA-F]+$/) {
+                            print tolower($i)
+                            exit
+                        }
+                    }
+                }
+            ' |
+            tr -d '[:space:]'
+    )"
+
+
+    # --------------------------------------------------------
+    # Validación
+    # --------------------------------------------------------
+
+    if [[ "$GRAPHICS_VALUE" != "0x0" ]]; then
+
+        echo
+        echo "Valor detectado:"
+        printf '  [%s]\n' "$GRAPHICS_VALUE"
+        echo
+
+        die "La configuración de aceleración de Office
+no quedó como se esperaba.
+
+Valor detectado:
+
+  ${GRAPHICS_VALUE:-no encontrado}
+
+Valor esperado:
+
+  0x0
+
+Salida completa:
+
+$GRAPHICS_QUERY"
+
+    fi
+
+
+    # --------------------------------------------------------
+    # Confirmación
+    # --------------------------------------------------------
+
+    ok "DisableHardwareAcceleration = 0x0"
+    ok "Office no tiene deshabilitada la aceleración por hardware."
 
     complete_step \
         "39-office-graphics-validation" \
-        "Aceleración por hardware verificada."
+        "Configuración de aceleración verificada."
 
 fi
 
@@ -2029,10 +2118,10 @@ if start_step "44-final" "Finalizar instalación"; then
     echo "  Wine32 (#arch=win32)"
     echo
     echo "DXVK:"
-    echo "  Instalado"
+    echo "  Instalado y configurado"
     echo
     echo "Office:"
-    echo "  Aceleración por hardware = ACTIVADA"
+    echo "  DisableHardwareAcceleration = 0"
     echo
     echo "Wrappers:"
     echo "  $LOCAL_BIN"
