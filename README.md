@@ -1,6 +1,20 @@
-# Office on Linux
+<h1 align="center">Office on Linux</h1>
+
+<p align="center">Repositorio dedicado a recopilar, documentar, adaptar y validar diferentes métodos para instalar y ejecutar Microsoft Office en Linux</p>
+
+<p align="center">
+ <img alt="banner_01" src="https://img.shields.io/github/last-commit/EddyBel/Office-on-Linux?color=%23AED6F1&style=for-the-badge" />
+ <img alt="banner_02" src="https://img.shields.io/github/license/EddyBel/Office-on-Linux?color=%23EAECEE&style=for-the-badge" />
+ <img alt="banner_03" src="https://img.shields.io/github/languages/top/EddyBel/Office-on-Linux?color=%23F9E79F&style=for-the-badge" />
+ <img alt="banner_04" src="https://img.shields.io/github/languages/count/EddyBel/Office-on-Linux?color=%23ABEBC6&style=for-the-badge" />
+ <img alt="banner_05" src="https://img.shields.io/github/languages/code-size/EddyBel/Office-on-Linux?color=%23F1948A&style=for-the-badge" />
+</p>
 
 > Una colección organizada de métodos, guías, configuraciones, scripts y recursos de instalación para ejecutar Microsoft Office en Linux.
+
+<p align= "center">
+    <img alt="preview_image" src="./docs/assets/Office on Linux.gif" width="100%" />
+</p>
 
 **office-on-linux** es un repositorio dedicado a recopilar, documentar, adaptar y validar diferentes métodos para instalar y ejecutar Microsoft Office en Linux.
 

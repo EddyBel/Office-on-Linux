@@ -3,36 +3,27 @@
 # ============================================================
 # Microsoft Office 365 - Bottle preconstruido
 #
-# Fedora + Wine + Wine32 + DXVK
+# Debian / Ubuntu + Wine + Wine32 + DXVK
 #
 # Instalación por usuario
 #
-# Validado originalmente sobre:
-#
-#   Fedora 44
-#   Wine 11.0 Staging
-#   Winetricks 20260125
-#   DXVK 3.1.1
-#   Mesa 26.2.3
-#   Vulkan 1.4.x
-#
 # Compatibilidad:
 #
-#   Este instalador no requiere una versión específica
-#   de Fedora.
+#   Debian / Ubuntu y derivados compatibles
 #
-#   Puede utilizarse en versiones de Fedora que dispongan
-#   de las dependencias y capacidades necesarias:
+# Requisitos:
 #
-#     - Wine x86_64
-#     - Wine i686 / Wine32
-#     - Winetricks
-#     - Vulkan x86_64
-#     - Vulkan i686
-#     - Vulkan funcional
-#     - Samba Winbind
-#     - Zenity
-#     - Fontconfig
+#   - Arquitectura x86_64 / amd64
+#   - Soporte i386 habilitable
+#   - Wine64
+#   - Wine32
+#   - Winetricks
+#   - Vulkan x86_64
+#   - Vulkan i386
+#   - Vulkan funcional
+#   - Samba Winbind
+#   - Zenity
+#   - Fontconfig
 #
 # Bottle:
 #
@@ -63,15 +54,12 @@ readonly LOCAL_ARCHIVE_SHORT="$SOURCE_DIR/MSO365-EN.tar.zst"
 readonly DOWNLOAD_URL="https://github.com/EddyBel/Office-on-Linux/releases/download/office365-fedora-44/MSO365-EN.tar.zst"
 readonly DOWNLOAD_ARCHIVE="$SOURCE_DIR/MSO365-EN.tar.zst"
 
-# Se determinará dinámicamente durante la comprobación del TAR.
 ARCHIVE=""
 
 readonly BOTTLE_DIR="$SOURCE_DIR/MSO365-English-"
 readonly SOURCE_BOTTLE="$BOTTLE_DIR/.Microsoft_Office_365"
 
 readonly WINEPREFIX_PATH="$HOME/.Microsoft_Office_365"
-
-readonly WINE32_BIN="wine32"
 
 readonly INSTALL_USER="$(id -un)"
 readonly INSTALL_GROUP="$(id -gn)"
@@ -82,8 +70,6 @@ readonly LOCAL_BIN="$HOME/.local/bin"
 readonly APPLICATIONS_DIR="$HOME/.local/share/applications"
 readonly ICONS_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
 readonly OFFICE_FONT_DIR="$HOME/.local/share/fonts/Office365"
-
-readonly WINE_FONT_DIR="/usr/share/wine/fonts"
 
 readonly WORD_EXE="$WINEPREFIX_PATH/drive_c/Program Files/Microsoft Office/root/Office16/WINWORD.EXE"
 
@@ -121,7 +107,7 @@ if [[ "$EUID" -eq 0 ]]; then
 
 Ejecuta:
 
-  ./install-office365-fedora.sh
+  ./install-office365-debian.sh
 
 El instalador solicitará sudo cuando sea necesario."
 fi
@@ -144,48 +130,107 @@ fi
 # shellcheck disable=SC1091
 source /etc/os-release
 
-if [[ "${ID:-}" != "fedora" ]]; then
-    die "Este instalador está diseñado para Fedora.
+case "${ID:-}" in
+
+    debian|ubuntu)
+        ;;
+
+    *)
+        if [[ "${ID_LIKE:-}" == *debian* ]]; then
+            :
+        else
+            die "Este instalador está diseñado para Debian,
+Ubuntu y sistemas derivados compatibles.
 
 Sistema detectado:
 
-  ${PRETTY_NAME:-desconocido}
+  ${PRETTY_NAME:-desconocido}"
+        fi
+        ;;
 
-Este instalador no está diseñado para Debian, Ubuntu, Arch,
-openSUSE u otras distribuciones."
-fi
+esac
 
-FEDORA_VERSION="${VERSION_ID:-unknown}"
-FEDORA_NAME="${PRETTY_NAME:-Fedora $FEDORA_VERSION}"
+DISTRO_ID="${ID:-unknown}"
+DISTRO_VERSION="${VERSION_ID:-unknown}"
+DISTRO_NAME="${PRETTY_NAME:-$DISTRO_ID $DISTRO_VERSION}"
 
-ok "Fedora detectado:"
-echo "    $FEDORA_NAME"
+ok "Sistema Debian/Ubuntu detectado:"
+echo "    $DISTRO_NAME"
 
 
 # ============================================================
-# 3. Comprobar DNF
+# 3. Comprobar arquitectura
+# ============================================================
+
+log "Comprobando arquitectura..."
+
+MACHINE_ARCH="$(dpkg --print-architecture)"
+
+if [[ "$MACHINE_ARCH" != "amd64" ]]; then
+    die "Este Bottle requiere un sistema x86_64 / amd64.
+
+Arquitectura detectada:
+
+  $MACHINE_ARCH"
+fi
+
+ok "Arquitectura amd64."
+
+
+# ============================================================
+# 4. Comprobar APT
 # ============================================================
 
 log "Comprobando gestor de paquetes..."
 
-command -v dnf >/dev/null 2>&1 \
-    || die "No se encontró dnf.
+command -v apt-get >/dev/null 2>&1 \
+    || die "No se encontró apt-get."
 
-Este instalador requiere el gestor de paquetes DNF de Fedora."
+command -v dpkg >/dev/null 2>&1 \
+    || die "No se encontró dpkg."
 
-ok "DNF disponible."
+ok "APT disponible."
 
 
 # ============================================================
-# 4. Comprobar archivo TAR / descargar si es necesario
+# 5. Habilitar arquitectura i386
+# ============================================================
+
+log "Comprobando soporte i386..."
+
+if ! dpkg --print-foreign-architectures \
+    | grep -qx 'i386'
+then
+
+    log "La arquitectura i386 no está habilitada."
+
+    sudo dpkg --add-architecture i386
+
+    ok "Arquitectura i386 habilitada."
+
+else
+
+    ok "Arquitectura i386 ya habilitada."
+
+fi
+
+
+# ============================================================
+# 6. Actualizar índices APT
+# ============================================================
+
+log "Actualizando índices de paquetes..."
+
+sudo apt-get update
+
+ok "Índices APT actualizados."
+
+
+# ============================================================
+# 7. Comprobar archivo TAR / descargar si es necesario
 # ============================================================
 
 log "Buscando archivo de Office..."
-
-# ------------------------------------------------------------
-# Prioridad 1:
-# MSO365-English-.tar.zst
-# ------------------------------------------------------------
 
 if [[ -f "$LOCAL_ARCHIVE_ENGLISH" ]]; then
 
@@ -194,22 +239,12 @@ if [[ -f "$LOCAL_ARCHIVE_ENGLISH" ]]; then
     ok "Archivo local encontrado:"
     echo "    $ARCHIVE"
 
-# ------------------------------------------------------------
-# Prioridad 2:
-# MSO365-EN.tar.zst
-# ------------------------------------------------------------
-
 elif [[ -f "$LOCAL_ARCHIVE_SHORT" ]]; then
 
     ARCHIVE="$LOCAL_ARCHIVE_SHORT"
 
     ok "Archivo local encontrado:"
     echo "    $ARCHIVE"
-
-# ------------------------------------------------------------
-# Prioridad 3:
-# Descargar desde GitHub Releases
-# ------------------------------------------------------------
 
 else
 
@@ -224,33 +259,30 @@ else
     DOWNLOAD_TOOL=""
 
     if command -v curl >/dev/null 2>&1; then
+
         DOWNLOAD_TOOL="curl"
 
     elif command -v wget >/dev/null 2>&1; then
+
         DOWNLOAD_TOOL="wget"
 
     else
-        log "No se encontró curl ni wget."
-        log "Instalando curl mediante DNF..."
 
-        sudo dnf install -y curl
+        log "No se encontró curl ni wget."
+        log "Instalando curl mediante APT..."
+
+        sudo apt-get install -y curl
 
         if command -v curl >/dev/null 2>&1; then
             DOWNLOAD_TOOL="curl"
         fi
+
     fi
 
     [[ -n "$DOWNLOAD_TOOL" ]] \
-        || die "No fue posible encontrar ni instalar una herramienta
-de descarga.
+        || die "No fue posible encontrar ni instalar una
+herramienta de descarga."
 
-Se necesita:
-
-  curl
-  o
-  wget"
-
-    # Evitar reutilizar accidentalmente un archivo incompleto.
     rm -f "$DOWNLOAD_ARCHIVE"
 
     case "$DOWNLOAD_TOOL" in
@@ -273,11 +305,7 @@ Se necesita:
 
                 rm -f "$DOWNLOAD_ARCHIVE"
 
-                die "No fue posible descargar el Bottle.
-
-URL:
-
-  $DOWNLOAD_URL"
+                die "No fue posible descargar el Bottle."
 
             fi
 
@@ -297,11 +325,7 @@ URL:
 
                 rm -f "$DOWNLOAD_ARCHIVE"
 
-                die "No fue posible descargar el Bottle.
-
-URL:
-
-  $DOWNLOAD_URL"
+                die "No fue posible descargar el Bottle."
 
             fi
 
@@ -309,21 +333,11 @@ URL:
 
     esac
 
-    # --------------------------------------------------------
-    # Validar descarga
-    # --------------------------------------------------------
+    [[ -f "$DOWNLOAD_ARCHIVE" ]] \
+        || die "La descarga terminó pero el archivo no existe."
 
-    if [[ ! -f "$DOWNLOAD_ARCHIVE" ]]; then
-        die "La descarga terminó pero no se encontró:
-
-  $DOWNLOAD_ARCHIVE"
-    fi
-
-    if [[ ! -s "$DOWNLOAD_ARCHIVE" ]]; then
-        rm -f "$DOWNLOAD_ARCHIVE"
-
-        die "La descarga produjo un archivo vacío."
-    fi
+    [[ -s "$DOWNLOAD_ARCHIVE" ]] \
+        || die "La descarga produjo un archivo vacío."
 
     ARCHIVE="$DOWNLOAD_ARCHIVE"
 
@@ -334,117 +348,96 @@ fi
 
 
 # ============================================================
-# 5. No sobrescribir instalaciones existentes
+# 8. No sobrescribir instalaciones existentes
 # ============================================================
 
 if [[ -e "$WINEPREFIX_PATH" ]]; then
+
     die "Ya existe el Bottle:
 
   $WINEPREFIX_PATH
 
 Por seguridad este instalador no sobrescribe instalaciones
 existentes."
+
 fi
 
 
 # ============================================================
-# 6. No sobrescribir extracción existente
+# 9. No sobrescribir extracción existente
 # ============================================================
 
 if [[ -e "$BOTTLE_DIR" ]]; then
+
     die "Ya existe el directorio:
 
   $BOTTLE_DIR
 
 Elimina o mueve ese directorio antes de continuar."
+
 fi
 
 
 # ============================================================
-# 7. Comprobar tar y zstd
-# ============================================================
-
-log "Comprobando herramientas de extracción..."
-
-command -v tar >/dev/null 2>&1 \
-    || die "No se encontró tar."
-
-command -v zstd >/dev/null 2>&1 \
-    || die "No se encontró zstd."
-
-ok "Herramientas de extracción disponibles."
-
-
-# ============================================================
-# 8. Extraer el Bottle
-# ============================================================
-
-log "Extrayendo Bottle..."
-
-tar \
-    -I zstd \
-    -xf "$ARCHIVE" \
-    -C "$SOURCE_DIR"
-
-[[ -d "$SOURCE_BOTTLE" ]] \
-    || die "La extracción terminó pero no se encontró:
-
-  $SOURCE_BOTTLE
-
-El archivo TAR no contiene la estructura de Bottle esperada."
-
-ok "Bottle extraído correctamente."
-
-
-# ============================================================
-# 9. Instalar dependencias Fedora
+# 10. Instalar dependencias Debian / Ubuntu
 # ============================================================
 
 log "Instalando dependencias..."
 
-sudo dnf install -y \
-    wine.x86_64 \
-    wine.i686 \
+sudo apt-get install -y \
+    ca-certificates \
+    curl \
+    wget \
+    tar \
+    zstd \
+    fontconfig \
+    xdg-utils \
+    desktop-file-utils \
+    zenity \
+    samba \
+    winbind \
+    wine \
+    wine64 \
+    wine32 \
     winetricks \
-    wine-winefonts \
-    vulkan-loader.x86_64 \
-    vulkan-loader.i686 \
-    vulkan-tools \
-    samba-winbind \
-    samba-winbind-clients \
-    zenity
+    libvulkan1:amd64 \
+    libvulkan1:i386 \
+    vulkan-tools
 
-ok "Transacción de dependencias completada."
+ok "Dependencias instaladas."
 
 
 # ============================================================
-# 10. Comprobar Wine32
+# 11. Comprobar Wine
 # ============================================================
 
-log "Comprobando Wine32..."
+log "Comprobando Wine..."
 
-command -v "$WINE32_BIN" >/dev/null 2>&1 \
+WINE64_BIN="$(command -v wine64 || true)"
+WINE32_BIN="$(command -v wine32 || true)"
+
+[[ -n "$WINE64_BIN" ]] \
+    || die "No se encontró wine64."
+
+[[ -n "$WINE32_BIN" ]] \
     || die "No se encontró wine32.
-
-El sistema Fedora no proporciona un ejecutable wine32
-funcional después de instalar Wine.
 
 El Bottle requiere Wine32."
 
-WINE32_VERSION="$(
+WINE_VERSION="$(
     "$WINE32_BIN" --version 2>/dev/null || true
 )"
 
-[[ -n "$WINE32_VERSION" ]] \
+[[ -n "$WINE_VERSION" ]] \
     || die "wine32 no pudo devolver su versión."
 
-echo "    $WINE32_VERSION"
+echo "    $WINE_VERSION"
 
-ok "wine32 disponible."
+ok "Wine32 disponible."
 
 
 # ============================================================
-# 11. Comprobar Winetricks
+# 12. Comprobar Winetricks
 # ============================================================
 
 log "Comprobando Winetricks..."
@@ -464,27 +457,24 @@ ok "Winetricks disponible."
 
 
 # ============================================================
-# 12. Comprobar Vulkan
+# 13. Comprobar Vulkan
 # ============================================================
 
 log "Comprobando Vulkan..."
 
 command -v vulkaninfo >/dev/null 2>&1 \
-    || die "No se encontró vulkaninfo.
-
-Instala el paquete vulkan-tools."
+    || die "No se encontró vulkaninfo."
 
 VULKAN_SUMMARY="$(
     vulkaninfo --summary 2>/dev/null || true
 )"
 
 if [[ -z "$VULKAN_SUMMARY" ]]; then
+
     die "Vulkan no respondió correctamente.
 
-DXVK requiere un controlador Vulkan funcional.
+DXVK requiere un controlador Vulkan funcional."
 
-Comprueba que tu GPU y su controlador Vulkan estén
-correctamente configurados."
 fi
 
 echo "$VULKAN_SUMMARY" \
@@ -496,7 +486,7 @@ ok "Vulkan responde correctamente."
 
 
 # ============================================================
-# 13. Comprobar herramientas de integración
+# 14. Comprobar herramientas de integración
 # ============================================================
 
 log "Comprobando herramientas del sistema..."
@@ -505,24 +495,46 @@ REQUIRED_COMMANDS=(
     fc-cache
     xdg-mime
     zenity
+    update-desktop-database
 )
 
 for command_name in "${REQUIRED_COMMANDS[@]}"
 do
+
     if ! command -v "$command_name" >/dev/null 2>&1; then
-        die "No se encontró el comando requerido:
 
-  $command_name
+        die "No se encontró:
 
-Comprueba las dependencias de Fedora antes de continuar."
+  $command_name"
+
     fi
+
 done
 
 ok "Herramientas de integración disponibles."
 
 
 # ============================================================
-# 14. Instalar el Bottle
+# 15. Extraer Bottle
+# ============================================================
+
+log "Extrayendo Bottle..."
+
+tar \
+    -I zstd \
+    -xf "$ARCHIVE" \
+    -C "$SOURCE_DIR"
+
+[[ -d "$SOURCE_BOTTLE" ]] \
+    || die "No se encontró el Bottle esperado:
+
+  $SOURCE_BOTTLE"
+
+ok "Bottle extraído correctamente."
+
+
+# ============================================================
+# 16. Instalar Bottle
 # ============================================================
 
 log "Copiando Bottle a:
@@ -537,7 +549,7 @@ ok "Bottle copiado."
 
 
 # ============================================================
-# 15. Corregir propietario y permisos
+# 17. Corregir propietario y permisos
 # ============================================================
 
 log "Corrigiendo propietario y permisos..."
@@ -554,7 +566,7 @@ ok "Propietario y permisos corregidos."
 
 
 # ============================================================
-# 16. Comprobar arquitectura
+# 18. Comprobar arquitectura del Bottle
 # ============================================================
 
 log "Comprobando arquitectura del Bottle..."
@@ -562,18 +574,20 @@ log "Comprobando arquitectura del Bottle..."
 if ! grep -q '^#arch=win32$' \
     "$WINEPREFIX_PATH/system.reg"
 then
+
     die "El Bottle no es un prefijo Wine32 reconocido.
 
 Se esperaba:
 
   #arch=win32"
+
 fi
 
 ok "Bottle confirmado como Wine32 puro."
 
 
 # ============================================================
-# 17. Configuración explícita Wine32
+# 19. Configuración Wine32
 # ============================================================
 
 export WINEPREFIX="$WINEPREFIX_PATH"
@@ -583,7 +597,7 @@ ok "WINEPREFIX y WINEARCH configurados."
 
 
 # ============================================================
-# 18. Reconstruir dosdevices
+# 20. Reconstruir dosdevices
 # ============================================================
 
 log "Reconstruyendo unidades Wine..."
@@ -614,7 +628,7 @@ ok "Unidades Wine reconstruidas."
 
 
 # ============================================================
-# 19. Crear estructura del usuario Wine
+# 21. Crear estructura del usuario Wine
 # ============================================================
 
 log "Creando directorios del usuario Wine..."
@@ -629,10 +643,10 @@ ok "Estructura del usuario creada."
 
 
 # ============================================================
-# 20. Crear directorios XDG
+# 22. Crear directorios XDG
 # ============================================================
 
-log "Creando directorios de integración con Fedora..."
+log "Creando directorios de integración..."
 
 mkdir -p \
     "$LOCAL_BIN"
@@ -650,7 +664,7 @@ ok "Directorios XDG preparados."
 
 
 # ============================================================
-# 21. Instalar fuentes de Office
+# 23. Instalar fuentes Office
 # ============================================================
 
 log "Instalando fuentes incluidas en el Bottle..."
@@ -677,7 +691,8 @@ else
 
   $SOURCE_FONT_DIR
 
-Se continuará sin fuentes adicionales del TAR."
+Se continuará sin fuentes adicionales."
+
 fi
 
 fc-cache -f
@@ -686,10 +701,16 @@ ok "Caché de fuentes actualizado."
 
 
 # ============================================================
-# 22. Reparar fuentes bitmap Wine
+# 24. Reparar fuentes bitmap Wine
 # ============================================================
 
 log "Comprobando fuentes bitmap Wine..."
+
+WINE_FONT_DIRS=(
+    "/usr/share/wine/fonts"
+    "/usr/share/wine/wine/fonts"
+    "/usr/share/wine-staging/fonts"
+)
 
 for font in \
     coure.fon \
@@ -699,14 +720,25 @@ for font in \
 do
 
     TARGET="$WINEPREFIX_PATH/drive_c/windows/Fonts/$font"
-    SOURCE="$WINE_FONT_DIR/$font"
 
     if [[ -f "$TARGET" ]]; then
         ok "$font ya existe."
         continue
     fi
 
-    if [[ -f "$SOURCE" ]]; then
+    SOURCE=""
+
+    for font_dir in "${WINE_FONT_DIRS[@]}"
+    do
+
+        if [[ -f "$font_dir/$font" ]]; then
+            SOURCE="$font_dir/$font"
+            break
+        fi
+
+    done
+
+    if [[ -n "$SOURCE" ]]; then
 
         cp -f \
             "$SOURCE" \
@@ -716,7 +748,7 @@ do
 
     else
 
-        warn "No se encontró $SOURCE"
+        warn "No se encontró $font en las rutas conocidas."
 
     fi
 
@@ -724,7 +756,7 @@ done
 
 
 # ============================================================
-# 23. Instalar launchers originales
+# 25. Instalar launchers originales
 # ============================================================
 
 log "Instalando launchers originales..."
@@ -736,7 +768,9 @@ LAUNCHERS=(
 )
 
 if (( ${#LAUNCHERS[@]} == 0 )); then
+
     die "No se encontraron launchers *365.sh."
+
 fi
 
 cp \
@@ -750,13 +784,7 @@ ok "Launchers originales copiados."
 
 
 # ============================================================
-# 24. Reemplazar wrappers por wrappers portables
-#
-# El Bottle contiene sus propios wrappers, pero pueden contener
-# rutas, comandos o configuraciones específicas de la máquina
-# donde se construyó el Bottle.
-#
-# Por ello, el instalador genera aquí los wrappers finales.
+# 26. Reemplazar wrappers por wrappers portables
 # ============================================================
 
 log "Configurando wrappers portables para esta instalación..."
@@ -769,40 +797,32 @@ log "Configurando wrappers portables para esta instalación..."
 cat > "$LOCAL_BIN/limpiar_office-wine365.sh" <<'EOF'
 #!/bin/bash
 
-# -------------------------
-# Configuración
-# -------------------------
 WINEPREFIX="$HOME/.Microsoft_Office_365"
-WINESERVER="/usr/bin/wineserver"
+WINESERVER="$(command -v wineserver || echo /usr/bin/wineserver)"
 
-# -------------------------
-# Modo Automático / Silencioso (Invocado desde los lanzadores)
-# -------------------------
 if [ "$1" = "--silent" ] || [ "$1" = "--auto" ]; then
-    # Contar exactamente cuántos procesos principales de Office siguen vivos
-    # Usamos pgrep -c para obtener un número entero de procesos activos
-    ACTIVE_COUNT=$(pgrep -f -i -c 'WINWORD\.EXE|EXCEL\.EXE|POWERPNT\.EXE|OUTLOOK\.EXE|MSACCESS\.EXE|MSPUB\.EXE')
 
-    # Si hay 1 o más aplicaciones abiertas, NO hacemos nada y salimos
+    ACTIVE_COUNT=$(
+        pgrep -f -i -c \
+        'WINWORD\.EXE|EXCEL\.EXE|POWERPNT\.EXE|OUTLOOK\.EXE|MSACCESS\.EXE|MSPUB\.EXE' \
+        || true
+    )
+
     if [ "$ACTIVE_COUNT" -gt 0 ]; then
         exit 0
     fi
+
 else
-    # -------------------------
-    # Modo Manual (Llamada directa desde la terminal o menú)
-    # -------------------------
+
     zenity --question \
         --title="Clean Wine / Office" \
         --text="Do you want to close all Wine and Microsoft Office processes?\n\nAny unsaved work will be lost." \
         --width=420
 
-    # Si el usuario pulsa "No" o cierra la ventana → salir
     [ $? -ne 0 ] && exit 0
+
 fi
 
-# -------------------------
-# Limpieza (Solo se ejecuta si el conteo de apps activas es 0)
-# -------------------------
 for exe in \
     EXCEL.EXE \
     WINWORD.EXE \
@@ -822,18 +842,23 @@ do
     pkill -9 -f "$exe" 2>/dev/null || true
 done
 
-# -------------------------
-# Cerrar Wine correctamente
-# -------------------------
 if [ -d "$WINEPREFIX" ]; then
-    WINEPREFIX="$WINEPREFIX" "$WINESERVER" -k 2>/dev/null || true
-    WINEPREFIX="$WINEPREFIX" "$WINESERVER" -w 2>/dev/null || true
+
+    WINEPREFIX="$WINEPREFIX" \
+        "$WINESERVER" -k \
+        2>/dev/null || true
+
+    WINEPREFIX="$WINEPREFIX" \
+        "$WINESERVER" -w \
+        2>/dev/null || true
+
 fi
 
 exit 0
 EOF
 
-chmod 755 "$LOCAL_BIN/limpiar_office-wine365.sh"
+chmod 755 \
+    "$LOCAL_BIN/limpiar_office-wine365.sh"
 
 ok "Wrapper de limpieza configurado."
 
@@ -851,27 +876,36 @@ create_office_wrapper() {
     cat > "$output" <<EOF
 #!/bin/bash
 set -e
+
 export WINEPREFIX="\$HOME/.Microsoft_Office_365"
 export LANG=C.UTF-8
 export WINEDEBUG=-all
 
 app="C:\\\\Program Files\\\\Microsoft Office\\\\root\\\\Office16\\\\$executable"
+
 wineserver -p >/dev/null 2>&1 || true
 
 if [ \$# -eq 0 ]; then
+
     wine32 "\$app"
+
 else
+
     for file in "\$@"; do
+
         fullpath=\$(realpath "\$file")
         winpath="Z:\${fullpath//\\//\\\\}"
+
         wine32 "\$app" "\$winpath"
+
     done
+
 fi
 
-# Limpieza automática de procesos Wine al salir
-# (solo si no quedan más apps abiertas)
 if [ -f "\$HOME/.local/bin/limpiar_office-wine365.sh" ]; then
+
     "\$HOME/.local/bin/limpiar_office-wine365.sh" --silent &
+
 fi
 EOF
 
@@ -879,9 +913,9 @@ EOF
 }
 
 
-# ------------------------------------------------------------
-# Crear los seis launchers
-# ------------------------------------------------------------
+# ============================================================
+# 27. Crear los seis wrappers
+# ============================================================
 
 create_office_wrapper \
     "word365.sh" \
@@ -908,9 +942,9 @@ create_office_wrapper \
     "MSPUB.EXE"
 
 
-# ------------------------------------------------------------
-# Verificar que todos los wrappers fueron creados
-# ------------------------------------------------------------
+# ============================================================
+# 28. Verificar wrappers
+# ============================================================
 
 WRAPPERS=(
     "$LOCAL_BIN/word365.sh"
@@ -924,21 +958,25 @@ WRAPPERS=(
 
 for wrapper in "${WRAPPERS[@]}"
 do
+
     if [[ ! -x "$wrapper" ]]; then
-        die "No se pudo crear el wrapper:
+
+        die "No se pudo crear:
 
   $wrapper"
+
     fi
+
 done
 
 ok "Wrappers completados."
 
 
 # ============================================================
-# 25. Validar launchers
+# 29. Validar wrappers
 # ============================================================
 
-log "Validando launchers..."
+log "Validando wrappers..."
 
 for launcher in \
     "$LOCAL_BIN/word365.sh" \
@@ -950,9 +988,11 @@ for launcher in \
 do
 
     if ! grep -q 'wine32' "$launcher"; then
-        die "El launcher no contiene una llamada a wine32:
+
+        die "El launcher no contiene wine32:
 
   $launcher"
+
     fi
 
     if grep -En \
@@ -980,11 +1020,11 @@ do
 
 done
 
-ok "Todos los wrappers utilizan wine32 y limpieza automática."
+ok "Todos los wrappers utilizan wine32."
 
 
 # ============================================================
-# 26. Instalar archivos .desktop
+# 30. Instalar archivos .desktop
 # ============================================================
 
 log "Instalando accesos del menú..."
@@ -1008,10 +1048,10 @@ ok "Archivos .desktop copiados."
 
 
 # ============================================================
-# 27. Corregir rutas Exec de los .desktop
+# 31. Corregir rutas Exec
 # ============================================================
 
-log "Adaptando archivos .desktop al entorno por usuario..."
+log "Adaptando archivos .desktop..."
 
 for desktop in "$APPLICATIONS_DIR/"*365.desktop
 do
@@ -1024,7 +1064,7 @@ done
 
 
 # ============================================================
-# 28. Validar archivos .desktop
+# 32. Validar archivos .desktop
 # ============================================================
 
 log "Validando accesos del menú..."
@@ -1033,31 +1073,35 @@ for desktop in "$APPLICATIONS_DIR/"*365.desktop
 do
 
     if grep -q '^Exec=/opt/launchers/' "$desktop"; then
+
         die "El archivo .desktop todavía apunta a /opt/launchers:
 
   $desktop"
+
     fi
 
     EXEC_PATH="$(
-        sed -n 's/^Exec=\([^ %]*\).*/\1/p' "$desktop" \
-        | head -1
+        sed -n \
+            's/^Exec=\([^ %]*\).*/\1/p' \
+            "$desktop" \
+            | head -1
     )"
 
     if [[ -z "$EXEC_PATH" ]]; then
+
         die "No se encontró Exec= en:
 
   $desktop"
+
     fi
 
     if [[ ! -x "$EXEC_PATH" ]]; then
+
         die "El launcher indicado por el .desktop no existe
 o no es ejecutable:
 
-  $EXEC_PATH
+  $EXEC_PATH"
 
-Archivo:
-
-  $desktop"
     fi
 
 done
@@ -1066,7 +1110,7 @@ ok "Archivos .desktop correctamente vinculados."
 
 
 # ============================================================
-# 29. Instalar iconos
+# 33. Instalar iconos
 # ============================================================
 
 log "Instalando iconos..."
@@ -1094,19 +1138,15 @@ fi
 
 
 # ============================================================
-# 30. Actualizar integración del escritorio
+# 34. Actualizar integración del escritorio
 # ============================================================
 
 log "Actualizando bases de datos del escritorio..."
 
-if command -v update-desktop-database >/dev/null 2>&1; then
-
-    update-desktop-database \
-        "$APPLICATIONS_DIR" \
-        >/dev/null 2>&1 \
-        || true
-
-fi
+update-desktop-database \
+    "$APPLICATIONS_DIR" \
+    >/dev/null 2>&1 \
+    || true
 
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
 
@@ -1121,7 +1161,7 @@ ok "Integración del escritorio actualizada."
 
 
 # ============================================================
-# 31. Instalar DXVK x32
+# 35. Instalar DXVK x32
 # ============================================================
 
 log "Instalando DXVK para el Bottle Wine32..."
@@ -1137,7 +1177,7 @@ ok "DXVK instalado."
 
 
 # ============================================================
-# 32. Verificar DLL de DXVK
+# 36. Verificar DLL de DXVK
 # ============================================================
 
 log "Verificando DLL de DXVK..."
@@ -1171,7 +1211,7 @@ ok "DLL de DXVK x32 presentes."
 
 
 # ============================================================
-# 33. Verificar overrides
+# 37. Verificar overrides
 # ============================================================
 
 log "Verificando overrides de DXVK..."
@@ -1201,7 +1241,7 @@ ok "Overrides DXVK confirmados."
 
 
 # ============================================================
-# 34. Habilitar aceleración por hardware de Office
+# 38. Habilitar aceleración por hardware de Office
 # ============================================================
 
 log "Habilitando aceleración por hardware de Office..."
@@ -1219,7 +1259,7 @@ ok "DisableHardwareAcceleration=0 configurado."
 
 
 # ============================================================
-# 35. Verificar aceleración por hardware de Office
+# 39. Verificar aceleración por hardware
 # ============================================================
 
 log "Verificando aceleración por hardware de Office..."
@@ -1238,9 +1278,11 @@ if [[ "$GRAPHICS_VALUE" != "0x0" ]]; then
     die "La aceleración por hardware de Office no quedó habilitada.
 
 Valor detectado:
+
   $GRAPHICS_VALUE
 
 Se esperaba:
+
   0x0"
 
 fi
@@ -1249,7 +1291,7 @@ ok "Aceleración por hardware de Office habilitada."
 
 
 # ============================================================
-# 36. Reiniciar wineserver
+# 40. Reiniciar wineserver
 # ============================================================
 
 log "Reiniciando wineserver..."
@@ -1266,7 +1308,7 @@ ok "wineserver reiniciado."
 
 
 # ============================================================
-# 37. Comprobar Microsoft Word
+# 41. Comprobar Microsoft Word
 # ============================================================
 
 log "Comprobando Microsoft Word..."
@@ -1283,7 +1325,7 @@ ok "WINWORD.EXE encontrado."
 
 
 # ============================================================
-# 38. Asociaciones MIME
+# 42. Asociaciones MIME
 # ============================================================
 
 log "Configurando asociaciones MIME..."
@@ -1328,7 +1370,7 @@ ok "Asociaciones MIME configuradas."
 
 
 # ============================================================
-# 39. Actualizar fontconfig
+# 43. Actualizar fontconfig
 # ============================================================
 
 log "Actualizando caché final de fuentes..."
@@ -1339,7 +1381,7 @@ ok "Caché final actualizado."
 
 
 # ============================================================
-# 40. Estado final
+# 44. Estado final
 # ============================================================
 
 echo
@@ -1348,16 +1390,13 @@ echo " Microsoft Office 365 - Instalación completada"
 echo "============================================================"
 echo
 echo "Sistema:"
-echo "  $FEDORA_NAME"
+echo "  $DISTRO_NAME"
 echo
 echo "Archivo utilizado:"
 echo "  $ARCHIVE"
 echo
-echo "Compatibilidad:"
-echo "  Fedora verificado por capacidades y dependencias"
-echo
 echo "Wine:"
-echo "  $WINE32_VERSION"
+echo "  $WINE_VERSION"
 echo
 echo "Bottle:"
 echo "  $WINEPREFIX_PATH"
@@ -1392,7 +1431,7 @@ echo
 
 
 # ============================================================
-# 41. Prueba opcional de Word
+# 45. Prueba opcional de Word
 # ============================================================
 
 if [[ "${SKIP_WORD_TEST:-0}" != "1" ]]; then
