@@ -49,7 +49,12 @@ set -Eeuo pipefail
 # 0. Configuración
 # ============================================================
 
-readonly SOURCE_DIR="$(pwd)"
+# La carpeta del instalador, no el directorio desde donde
+# fue ejecutado.
+readonly SOURCE_DIR="$(
+    cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &&
+    pwd
+)"
 
 readonly LOCAL_ARCHIVE_ENGLISH="$SOURCE_DIR/MSO365-English-.tar.zst"
 readonly LOCAL_ARCHIVE_SHORT="$SOURCE_DIR/MSO365-EN.tar.zst"
@@ -197,6 +202,130 @@ trap cleanup_on_interrupt INT TERM
 
 
 # ============================================================
+# Validación de wrappers existentes
+#
+# Esto evita que un checkpoint antiguo haga que el instalador
+# conserve launchers generados por una versión anterior.
+# ============================================================
+
+office_wrappers_current() {
+
+    local launcher
+
+    # Wrapper de limpieza
+    if [[ ! -x "$LOCAL_BIN/limpiar_office-wine365.sh" ]]; then
+        return 1
+    fi
+
+    # Wrappers principales
+    for launcher in \
+        "$LOCAL_BIN/word365.sh" \
+        "$LOCAL_BIN/excel365.sh" \
+        "$LOCAL_BIN/powerpoint365.sh" \
+        "$LOCAL_BIN/access365.sh" \
+        "$LOCAL_BIN/outlook365.sh" \
+        "$LOCAL_BIN/publisher365.sh"
+    do
+
+        [[ -x "$launcher" ]] || return 1
+
+        # Debe utilizar wine32.
+        grep -q 'wine32' "$launcher" || return 1
+
+        # No debe utilizar el comando genérico wine.
+        if grep -En \
+            '(^|[[:space:]])wine([[:space:]]|$)' \
+            "$launcher" \
+            >/dev/null
+        then
+            return 1
+        fi
+
+        # Debe incluir la limpieza automática.
+        grep -q \
+            'limpiar_office-wine365\.sh --silent' \
+            "$launcher" \
+            || return 1
+
+    done
+
+    return 0
+}
+
+
+invalidate_stale_wrapper_steps() {
+
+    local wrapper_checkpoint_exists=0
+
+    if [[ -f "$STATE_FILE" ]]; then
+
+        for step in \
+            25-original-launchers \
+            26-cleanup-wrapper \
+            27-office-wrappers \
+            28-wrapper-validation \
+            29-wine32-validation
+        do
+
+            if step_done "$step"; then
+                wrapper_checkpoint_exists=1
+                break
+            fi
+
+        done
+
+    fi
+
+    # Si no hay checkpoints relacionados y tampoco existen
+    # wrappers, no hay nada que invalidar.
+    if (( wrapper_checkpoint_exists == 0 )) &&
+       [[ ! -e "$LOCAL_BIN/word365.sh" ]] &&
+       [[ ! -e "$LOCAL_BIN/excel365.sh" ]] &&
+       [[ ! -e "$LOCAL_BIN/powerpoint365.sh" ]] &&
+       [[ ! -e "$LOCAL_BIN/access365.sh" ]] &&
+       [[ ! -e "$LOCAL_BIN/outlook365.sh" ]] &&
+       [[ ! -e "$LOCAL_BIN/publisher365.sh" ]] &&
+       [[ ! -e "$LOCAL_BIN/limpiar_office-wine365.sh" ]]
+    then
+        return 0
+    fi
+
+    if office_wrappers_current; then
+
+        ok "Wrappers Office existentes están actualizados."
+
+        return 0
+
+    fi
+
+    warn "Se detectaron wrappers Office antiguos o incompletos."
+    warn "Se invalidarán las etapas de generación de launchers."
+
+    if [[ -f "$STATE_FILE" ]]; then
+
+        sed -i \
+            -e '/^25-original-launchers$/d' \
+            -e '/^26-cleanup-wrapper$/d' \
+            -e '/^27-office-wrappers$/d' \
+            -e '/^28-wrapper-validation$/d' \
+            -e '/^29-wine32-validation$/d' \
+            "$STATE_FILE"
+
+    fi
+
+    ok "Etapas de wrappers invalidadas."
+
+}
+
+
+# ============================================================
+# Invalidar wrappers antiguos antes de procesar checkpoints
+# ============================================================
+
+invalidate_stale_wrapper_steps
+
+
+# ============================================================
 # 1. No ejecutar como root
 # ============================================================
 
@@ -267,7 +396,6 @@ Sistema detectado:
 
 else
 
-    # Variables necesarias si la etapa ya estaba completada.
     # shellcheck disable=SC1091
     source /etc/os-release
 
@@ -1438,11 +1566,33 @@ if start_step "29-wine32-validation" "Validar uso de Wine32"; then
         "$LOCAL_BIN/publisher365.sh"
     do
 
+        if [[ ! -f "$launcher" ]]; then
+
+            die "No existe el launcher:
+
+  $launcher"
+
+        fi
+
+        if [[ ! -x "$launcher" ]]; then
+
+            die "El launcher no es ejecutable:
+
+  $launcher"
+
+        fi
+
         if ! grep -q 'wine32' "$launcher"; then
 
             die "El launcher no contiene wine32:
 
-  $launcher"
+  $launcher
+
+Contenido actual:
+
+------------------------------------------------------------
+$(cat "$launcher")
+------------------------------------------------------------"
 
         fi
 
@@ -1454,28 +1604,49 @@ if start_step "29-wine32-validation" "Validar uso de Wine32"; then
 
             die "El launcher contiene una llamada al comando genérico wine:
 
-  $launcher"
+  $launcher
+
+Contenido actual:
+
+------------------------------------------------------------
+$(cat "$launcher")
+------------------------------------------------------------"
 
         fi
 
         if ! grep -q \
-            'limpiar_office-wine365.sh --silent' \
+            'limpiar_office-wine365\.sh --silent' \
             "$launcher"
         then
 
             die "El launcher no contiene la limpieza automática:
 
-  $launcher"
+  $launcher
+
+Contenido actual:
+
+------------------------------------------------------------
+$(cat "$launcher")
+------------------------------------------------------------"
 
         fi
 
     done
 
+    if [[ ! -x "$LOCAL_BIN/limpiar_office-wine365.sh" ]]; then
+
+        die "No existe el wrapper de limpieza:
+
+  $LOCAL_BIN/limpiar_office-wine365.sh"
+
+    fi
+
     ok "Todos los wrappers utilizan wine32."
+    ok "Todos los wrappers incluyen limpieza automática."
 
     complete_step \
         "29-wine32-validation" \
-        "Uso de Wine32 validado."
+        "Uso de Wine32 y limpieza automática validados."
 
 fi
 
