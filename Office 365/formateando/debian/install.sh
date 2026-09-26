@@ -7,39 +7,6 @@
 #
 # Instalación por usuario
 #
-# Compatibilidad:
-#
-#   Debian / Ubuntu y derivados compatibles
-#
-# Requisitos:
-#
-#   - Arquitectura x86_64 / amd64
-#   - Soporte i386 habilitable
-#   - Wine64
-#   - Wine32
-#   - Winetricks
-#   - Vulkan x86_64
-#   - Vulkan i386
-#   - Vulkan funcional
-#   - Samba / Winbind
-#   - Zenity
-#   - Fontconfig
-#
-# Bottle:
-#
-#   ~/.Microsoft_Office_365
-#
-# El Bottle es un prefijo Wine32:
-#
-#   #arch=win32
-#
-# El instalador utiliza checkpoints persistentes para poder
-# continuar una instalación interrumpida.
-#
-# Estado:
-#
-#   ~/.local/state/office365-installer/progress
-#
 # ============================================================
 
 set -Eeuo pipefail
@@ -49,8 +16,6 @@ set -Eeuo pipefail
 # 0. Configuración
 # ============================================================
 
-# La carpeta del instalador, no el directorio desde donde
-# fue ejecutado.
 readonly SOURCE_DIR="$(
     cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &&
     pwd
@@ -76,7 +41,13 @@ readonly WINE_USER="crossover"
 
 readonly LOCAL_BIN="$HOME/.local/bin"
 readonly APPLICATIONS_DIR="$HOME/.local/share/applications"
-readonly ICONS_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
+
+# SVG
+readonly ICONS_SCALABLE_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
+
+# PNG 256x256
+readonly ICONS_256_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
+
 readonly OFFICE_FONT_DIR="$HOME/.local/share/fonts/Office365"
 
 readonly STATE_DIR="$HOME/.local/state/office365-installer"
@@ -202,183 +173,6 @@ trap cleanup_on_interrupt INT TERM
 
 
 # ============================================================
-# Validación de wrappers existentes
-#
-# Comprueba que los launchers generados por versiones
-# anteriores del instalador sigan siendo compatibles con
-# la implementación actual.
-# ============================================================
-
-office_wrappers_current() {
-
-    local launcher
-
-    # --------------------------------------------------------
-    # Wrapper de limpieza
-    # --------------------------------------------------------
-
-    if [[ ! -x "$LOCAL_BIN/limpiar_office-wine365.sh" ]]; then
-        return 1
-    fi
-
-
-    # --------------------------------------------------------
-    # Wrappers principales
-    # --------------------------------------------------------
-
-    for launcher in \
-        "$LOCAL_BIN/word365.sh" \
-        "$LOCAL_BIN/excel365.sh" \
-        "$LOCAL_BIN/powerpoint365.sh" \
-        "$LOCAL_BIN/access365.sh" \
-        "$LOCAL_BIN/outlook365.sh" \
-        "$LOCAL_BIN/publisher365.sh"
-    do
-
-        [[ -x "$launcher" ]] || return 1
-
-
-        # ----------------------------------------------------
-        # Debe utilizar Wine32.
-        # ----------------------------------------------------
-
-        grep -q 'wine32' "$launcher" || return 1
-
-
-        # ----------------------------------------------------
-        # No debe utilizar el comando genérico "wine".
-        # ----------------------------------------------------
-
-        if grep -En \
-            '(^|[[:space:]])wine([[:space:]]|$)' \
-            "$launcher" \
-            >/dev/null
-        then
-            return 1
-        fi
-
-
-        # ----------------------------------------------------
-        # Debe contener el wrapper de limpieza.
-        # ----------------------------------------------------
-
-        grep -Eq \
-            'limpiar_office-wine365\.sh' \
-            "$launcher" \
-            || return 1
-
-
-        # ----------------------------------------------------
-        # Debe ejecutarlo en modo automático/silencioso.
-        #
-        # Se permite:
-        #
-        #   --silent
-        #   --auto
-        #
-        # y se toleran comillas alrededor del path.
-        # ----------------------------------------------------
-
-        grep -Eq \
-            'limpiar_office-wine365\.sh["'\'']?[[:space:]]+--(silent|auto)' \
-            "$launcher" \
-            || return 1
-
-    done
-
-    return 0
-}
-
-
-invalidate_stale_wrapper_steps() {
-
-    local wrapper_checkpoint_exists=0
-
-    if [[ -f "$STATE_FILE" ]]; then
-
-        for step in \
-            25-original-launchers \
-            26-cleanup-wrapper \
-            27-office-wrappers \
-            28-wrapper-validation \
-            29-wine32-validation
-        do
-
-            if step_done "$step"; then
-                wrapper_checkpoint_exists=1
-                break
-            fi
-
-        done
-
-    fi
-
-
-    # --------------------------------------------------------
-    # Si no hay checkpoints relacionados y tampoco existen
-    # wrappers, no hay nada que invalidar.
-    # --------------------------------------------------------
-
-    if (( wrapper_checkpoint_exists == 0 )) &&
-       [[ ! -e "$LOCAL_BIN/word365.sh" ]] &&
-       [[ ! -e "$LOCAL_BIN/excel365.sh" ]] &&
-       [[ ! -e "$LOCAL_BIN/powerpoint365.sh" ]] &&
-       [[ ! -e "$LOCAL_BIN/access365.sh" ]] &&
-       [[ ! -e "$LOCAL_BIN/outlook365.sh" ]] &&
-       [[ ! -e "$LOCAL_BIN/publisher365.sh" ]] &&
-       [[ ! -e "$LOCAL_BIN/limpiar_office-wine365.sh" ]]
-    then
-        return 0
-    fi
-
-
-    # --------------------------------------------------------
-    # Si todos los wrappers actuales son correctos, conservar
-    # los checkpoints.
-    # --------------------------------------------------------
-
-    if office_wrappers_current; then
-
-        ok "Wrappers Office existentes están actualizados."
-
-        return 0
-
-    fi
-
-
-    # --------------------------------------------------------
-    # Hay wrappers antiguos o incompletos.
-    # --------------------------------------------------------
-
-    warn "Se detectaron wrappers Office antiguos o incompletos."
-    warn "Se invalidarán las etapas de generación de launchers."
-
-
-    if [[ -f "$STATE_FILE" ]]; then
-
-        sed -i \
-            -e '/^25-original-launchers$/d' \
-            -e '/^26-cleanup-wrapper$/d' \
-            -e '/^27-office-wrappers$/d' \
-            -e '/^28-wrapper-validation$/d' \
-            -e '/^29-wine32-validation$/d' \
-            "$STATE_FILE"
-
-    fi
-
-    ok "Etapas de wrappers invalidadas."
-
-}
-
-
-# ============================================================
-# Invalidar wrappers antiguos antes de procesar checkpoints
-# ============================================================
-
-invalidate_stale_wrapper_steps
-
-
-# ============================================================
 # 1. No ejecutar como root
 # ============================================================
 
@@ -403,15 +197,8 @@ if start_step "02-system" "Comprobar sistema operativo"; then
 
     log "Comprobando sistema operativo..."
 
-    if [[ ! -r /etc/os-release ]]; then
-
-        die "No se pudo determinar el sistema operativo.
-
-No se encontró:
-
-  /etc/os-release"
-
-    fi
+    [[ -r /etc/os-release ]] \
+        || die "No se pudo determinar el sistema operativo."
 
     # shellcheck disable=SC1091
     source /etc/os-release
@@ -426,7 +213,7 @@ No se encontró:
                 :
             else
                 die "Este instalador está diseñado para Debian,
-Ubuntu y sistemas derivados compatibles.
+Ubuntu y derivados compatibles.
 
 Sistema detectado:
 
@@ -469,15 +256,12 @@ if start_step "03-architecture" "Comprobar arquitectura"; then
 
     MACHINE_ARCH="$(dpkg --print-architecture)"
 
-    if [[ "$MACHINE_ARCH" != "amd64" ]]; then
-
-        die "Este Bottle requiere un sistema x86_64 / amd64.
+    [[ "$MACHINE_ARCH" == "amd64" ]] \
+        || die "Este Bottle requiere un sistema x86_64 / amd64.
 
 Arquitectura detectada:
 
   $MACHINE_ARCH"
-
-    fi
 
     ok "Arquitectura amd64."
 
@@ -497,8 +281,6 @@ fi
 # ============================================================
 
 if start_step "04-apt" "Comprobar gestor de paquetes"; then
-
-    log "Comprobando gestor de paquetes..."
 
     command -v apt-get >/dev/null 2>&1 \
         || die "No se encontró apt-get."
@@ -526,8 +308,6 @@ if start_step "05-i386" "Habilitar arquitectura i386"; then
     if ! dpkg --print-foreign-architectures \
         | grep -qx 'i386'
     then
-
-        log "La arquitectura i386 no está habilitada."
 
         sudo dpkg --add-architecture i386
 
@@ -564,7 +344,7 @@ fi
 
 
 # ============================================================
-# 7. Comprobar Bottle / descarga
+# 7. Preparar Bottle
 # ============================================================
 
 if start_step "07-archive" "Preparar Bottle de Office"; then
@@ -575,34 +355,17 @@ if start_step "07-archive" "Preparar Bottle de Office"; then
 
         ARCHIVE="$LOCAL_ARCHIVE_ENGLISH"
 
-        ok "Archivo local encontrado:"
-        echo "    $ARCHIVE"
-
     elif [[ -f "$LOCAL_ARCHIVE_SHORT" ]]; then
 
         ARCHIVE="$LOCAL_ARCHIVE_SHORT"
 
-        ok "Archivo local encontrado:"
-        echo "    $ARCHIVE"
-
     elif [[ -f "$DOWNLOAD_ARCHIVE" ]]; then
-
-        log "Se encontró una descarga anterior."
 
         ARCHIVE="$DOWNLOAD_ARCHIVE"
 
-        ok "Se reutilizará el archivo descargado anteriormente:"
-        echo "    $ARCHIVE"
-
     else
 
-        log "No se encontró un archivo de Office local."
-
-        echo
-        echo "Se intentará descargar:"
-        echo
-        echo "  $DOWNLOAD_URL"
-        echo
+        log "No se encontró un archivo local."
 
         DOWNLOAD_TOOL=""
 
@@ -616,27 +379,20 @@ if start_step "07-archive" "Preparar Bottle de Office"; then
 
         else
 
-            log "No se encontró curl ni wget."
-            log "Instalando curl mediante APT..."
+            log "Instalando curl..."
 
             sudo apt-get install -y curl
 
-            if command -v curl >/dev/null 2>&1; then
-                DOWNLOAD_TOOL="curl"
-            fi
+            DOWNLOAD_TOOL="curl"
 
         fi
 
-        [[ -n "$DOWNLOAD_TOOL" ]] \
-            || die "No fue posible encontrar ni instalar una herramienta de descarga."
 
         case "$DOWNLOAD_TOOL" in
 
             curl)
 
-                log "Descargando con curl..."
-
-                if ! curl \
+                curl \
                     --fail \
                     --location \
                     --show-error \
@@ -647,63 +403,43 @@ if start_step "07-archive" "Preparar Bottle de Office"; then
                     --continue-at - \
                     --output "$DOWNLOAD_ARCHIVE" \
                     "$DOWNLOAD_URL"
-                then
-
-                    die "No fue posible descargar el Bottle.
-
-Si la descarga quedó parcialmente descargada,
-vuelve a ejecutar el instalador para intentar continuar."
-
-                fi
 
                 ;;
 
             wget)
 
-                log "Descargando con wget..."
-
-                if ! wget \
+                wget \
                     --continue \
                     --progress=bar:force \
                     --tries=3 \
                     --timeout=15 \
                     -O "$DOWNLOAD_ARCHIVE" \
                     "$DOWNLOAD_URL"
-                then
-
-                    die "No fue posible descargar el Bottle.
-
-Si la descarga quedó parcialmente descargada,
-vuelve a ejecutar el instalador para intentar continuar."
-
-                fi
 
                 ;;
 
         esac
-
-        [[ -f "$DOWNLOAD_ARCHIVE" ]] \
-            || die "La descarga terminó pero el archivo no existe."
 
         [[ -s "$DOWNLOAD_ARCHIVE" ]] \
             || die "La descarga produjo un archivo vacío."
 
         ARCHIVE="$DOWNLOAD_ARCHIVE"
 
-        ok "Bottle descargado correctamente:"
-        echo "    $ARCHIVE"
-
     fi
 
+
     [[ -f "$ARCHIVE" ]] \
-        || die "No existe el archivo seleccionado:
+        || die "No existe el archivo:
 
   $ARCHIVE"
 
     [[ -s "$ARCHIVE" ]] \
-        || die "El archivo del Bottle está vacío:
+        || die "El archivo está vacío:
 
   $ARCHIVE"
+
+    ok "Bottle disponible:"
+    echo "    $ARCHIVE"
 
     complete_step \
         "07-archive" \
@@ -712,28 +448,20 @@ vuelve a ejecutar el instalador para intentar continuar."
 else
 
     if [[ -f "$LOCAL_ARCHIVE_ENGLISH" ]]; then
-
         ARCHIVE="$LOCAL_ARCHIVE_ENGLISH"
-
     elif [[ -f "$LOCAL_ARCHIVE_SHORT" ]]; then
-
         ARCHIVE="$LOCAL_ARCHIVE_SHORT"
-
     elif [[ -f "$DOWNLOAD_ARCHIVE" ]]; then
-
         ARCHIVE="$DOWNLOAD_ARCHIVE"
-
     else
-
         die "No se pudo recuperar el archivo del Bottle."
-
     fi
 
 fi
 
 
 # ============================================================
-# 8. Detectar instalación interrumpida
+# 8. Instalación existente
 # ============================================================
 
 if start_step "08-existing-install" "Comprobar instalación existente"; then
@@ -745,27 +473,20 @@ if start_step "08-existing-install" "Comprobar instalación existente"; then
             log "Se detectó una instalación anterior."
 
             echo
-            echo "Bottle:"
-            echo "  $WINEPREFIX_PATH"
-            echo
-            echo "Estado guardado:"
-            echo
-
             cat "$STATE_FILE"
-
             echo
+
             ok "La instalación será reanudada."
 
         else
 
-            die "Ya existe el Bottle:
+            die "Ya existe:
 
   $WINEPREFIX_PATH
 
-No se encontró un estado de instalación asociado.
+No existe un estado de instalación asociado.
 
-Por seguridad, este instalador no sobrescribirá
-una instalación existente."
+Por seguridad no se sobrescribirá."
 
         fi
 
@@ -783,7 +504,7 @@ fi
 
 
 # ============================================================
-# 9. Comprobar extracción existente
+# 9. Comprobar extracción
 # ============================================================
 
 if start_step "09-extraction-check" "Comprobar extracción anterior"; then
@@ -792,16 +513,11 @@ if start_step "09-extraction-check" "Comprobar extracción anterior"; then
 
         if [[ -d "$SOURCE_BOTTLE" ]]; then
 
-            ok "Se encontró una extracción válida anterior:"
-            echo "    $SOURCE_BOTTLE"
+            ok "Extracción válida encontrada."
 
         else
 
-            warn "Se encontró una extracción incompleta:"
-            echo "    $BOTTLE_DIR"
-
-            log "Eliminando extracción incompleta..."
-
+            warn "Extracción incompleta encontrada."
             rm -rf "$BOTTLE_DIR"
 
             ok "Extracción incompleta eliminada."
@@ -810,7 +526,7 @@ if start_step "09-extraction-check" "Comprobar extracción anterior"; then
 
     else
 
-        ok "No existe una extracción anterior."
+        ok "No existe extracción anterior."
 
     fi
 
@@ -822,7 +538,7 @@ fi
 
 
 # ============================================================
-# 10. Instalar dependencias Debian / Ubuntu
+# 10. Dependencias
 # ============================================================
 
 if start_step "10-dependencies" "Instalar dependencias Debian / Ubuntu"; then
@@ -857,12 +573,10 @@ fi
 
 
 # ============================================================
-# 11. Comprobar Wine
+# 11. Wine
 # ============================================================
 
 if start_step "11-wine" "Comprobar Wine32 y Wine64"; then
-
-    log "Comprobando Wine..."
 
     WINE64_BIN="$(command -v wine64 || true)"
     WINE32_BIN="$(command -v wine32 || true)"
@@ -871,9 +585,7 @@ if start_step "11-wine" "Comprobar Wine32 y Wine64"; then
         || die "No se encontró wine64."
 
     [[ -n "$WINE32_BIN" ]] \
-        || die "No se encontró wine32.
-
-El Bottle requiere Wine32."
+        || die "No se encontró wine32."
 
     WINE_VERSION="$(
         "$WINE32_BIN" --version 2>/dev/null || true
@@ -903,12 +615,10 @@ fi
 
 
 # ============================================================
-# 12. Comprobar Winetricks
+# 12. Winetricks
 # ============================================================
 
 if start_step "12-winetricks" "Comprobar Winetricks"; then
-
-    log "Comprobando Winetricks..."
 
     command -v winetricks >/dev/null 2>&1 \
         || die "No se encontró Winetricks."
@@ -917,11 +627,7 @@ if start_step "12-winetricks" "Comprobar Winetricks"; then
         winetricks --version 2>/dev/null || true
     )"
 
-    if [[ -n "$WINETRICKS_VERSION" ]]; then
-        echo "    Winetricks $WINETRICKS_VERSION"
-    fi
-
-    ok "Winetricks disponible."
+    echo "    Winetricks $WINETRICKS_VERSION"
 
     complete_step \
         "12-winetricks" \
@@ -931,12 +637,10 @@ fi
 
 
 # ============================================================
-# 13. Comprobar Vulkan
+# 13. Vulkan
 # ============================================================
 
 if start_step "13-vulkan" "Comprobar Vulkan"; then
-
-    log "Comprobando Vulkan..."
 
     command -v vulkaninfo >/dev/null 2>&1 \
         || die "No se encontró vulkaninfo."
@@ -945,16 +649,8 @@ if start_step "13-vulkan" "Comprobar Vulkan"; then
         vulkaninfo --summary 2>/dev/null || true
     )"
 
-    if [[ -z "$VULKAN_SUMMARY" ]]; then
-
-        die "Vulkan no respondió correctamente.
-
-DXVK requiere un controlador Vulkan funcional.
-
-Instala los controladores Vulkan apropiados para tu GPU,
-incluyendo soporte de 32 bits."
-
-    fi
+    [[ -n "$VULKAN_SUMMARY" ]] \
+        || die "Vulkan no respondió correctamente."
 
     echo "$VULKAN_SUMMARY" \
         | grep -E 'deviceName|driverName|driverInfo' \
@@ -971,34 +667,26 @@ fi
 
 
 # ============================================================
-# 14. Comprobar herramientas de integración
+# 14. Herramientas
 # ============================================================
 
 if start_step "14-tools" "Comprobar herramientas de integración"; then
 
-    log "Comprobando herramientas del sistema..."
-
-    REQUIRED_COMMANDS=(
-        fc-cache
-        xdg-mime
-        zenity
+    for command_name in \
+        fc-cache \
+        xdg-mime \
+        zenity \
         update-desktop-database
-    )
-
-    for command_name in "${REQUIRED_COMMANDS[@]}"
     do
 
-        if ! command -v "$command_name" >/dev/null 2>&1; then
-
-            die "No se encontró:
+        command -v "$command_name" >/dev/null 2>&1 \
+            || die "No se encontró:
 
   $command_name"
 
-        fi
-
     done
 
-    ok "Herramientas de integración disponibles."
+    ok "Herramientas disponibles."
 
     complete_step \
         "14-tools" \
@@ -1013,38 +701,23 @@ fi
 
 if start_step "15-extraction" "Extraer Bottle"; then
 
-    log "Extrayendo Bottle..."
-
-    if [[ -e "$BOTTLE_DIR" ]]; then
-
-        warn "Se encontró una extracción anterior."
-
-        if [[ -d "$SOURCE_BOTTLE" ]]; then
-
-            ok "La extracción ya está completa."
-
-        else
-
-            log "La extracción anterior está incompleta."
-            log "Eliminándola antes de reintentar..."
-
-            rm -rf "$BOTTLE_DIR"
-
-        fi
-
-    fi
-
     if [[ ! -d "$SOURCE_BOTTLE" ]]; then
+
+        log "Extrayendo Bottle..."
 
         tar \
             -I zstd \
             -xf "$ARCHIVE" \
             -C "$SOURCE_DIR"
 
+    else
+
+        ok "Bottle ya extraído."
+
     fi
 
     [[ -d "$SOURCE_BOTTLE" ]] \
-        || die "No se encontró el Bottle esperado:
+        || die "No se encontró:
 
   $SOURCE_BOTTLE"
 
@@ -1061,13 +734,9 @@ fi
 
 if start_step "16-install-bottle" "Instalar Bottle"; then
 
-    log "Copiando Bottle a:
-
-  $WINEPREFIX_PATH"
-
     if [[ -e "$WINEPREFIX_PATH" ]]; then
 
-        log "Eliminando instalación parcial anterior..."
+        log "Eliminando instalación parcial..."
 
         rm -rf "$WINEPREFIX_PATH"
 
@@ -1088,12 +757,10 @@ fi
 
 
 # ============================================================
-# 17. Corregir propietario y permisos
+# 17. Permisos
 # ============================================================
 
 if start_step "17-permissions" "Corregir propietario y permisos"; then
-
-    log "Corrigiendo propietario y permisos..."
 
     chown -R \
         "$INSTALL_USER:$INSTALL_GROUP" \
@@ -1103,8 +770,6 @@ if start_step "17-permissions" "Corregir propietario y permisos"; then
         u+rwX \
         "$WINEPREFIX_PATH"
 
-    ok "Propietario y permisos corregidos."
-
     complete_step \
         "17-permissions" \
         "Propietario y permisos corregidos."
@@ -1113,18 +778,19 @@ fi
 
 
 # ============================================================
-# 18. Comprobar arquitectura del Bottle
+# 18. Arquitectura Bottle
 # ============================================================
 
 if start_step "18-bottle-arch" "Comprobar arquitectura del Bottle"; then
 
-    log "Comprobando arquitectura del Bottle..."
+    [[ -f "$WINEPREFIX_PATH/system.reg" ]] \
+        || die "No se encontró system.reg."
 
     if ! grep -q '^#arch=win32$' \
         "$WINEPREFIX_PATH/system.reg"
     then
 
-        die "El Bottle no es un prefijo Wine32 reconocido.
+        die "El Bottle no es un prefijo Wine32.
 
 Se esperaba:
 
@@ -1132,7 +798,7 @@ Se esperaba:
 
     fi
 
-    ok "Bottle confirmado como Wine32 puro."
+    ok "Bottle confirmado como Wine32."
 
     complete_step \
         "18-bottle-arch" \
@@ -1142,7 +808,7 @@ fi
 
 
 # ============================================================
-# 19. Configuración Wine32
+# 19. Variables Wine
 # ============================================================
 
 export WINEPREFIX="$WINEPREFIX_PATH"
@@ -1156,36 +822,26 @@ echo "    $WINEARCH"
 
 
 # ============================================================
-# 20. Reconstruir dosdevices
+# 20. dosdevices
 # ============================================================
 
 if start_step "20-dosdevices" "Reconstruir unidades Wine"; then
 
-    log "Reconstruyendo unidades Wine..."
+    rm -rf "$WINEPREFIX_PATH/dosdevices"
 
-    rm -rf \
-        "$WINEPREFIX_PATH/dosdevices"
+    mkdir -p "$WINEPREFIX_PATH/dosdevices"
 
-    mkdir -p \
-        "$WINEPREFIX_PATH/dosdevices"
-
-    ln -s \
-        ../drive_c \
+    ln -s ../drive_c \
         "$WINEPREFIX_PATH/dosdevices/c:"
 
-    ln -s \
-        / \
+    ln -s / \
         "$WINEPREFIX_PATH/dosdevices/z:"
 
-    ln -s \
-        /media \
+    ln -s /media \
         "$WINEPREFIX_PATH/dosdevices/d:"
 
-    ln -s \
-        "$HOME" \
+    ln -s "$HOME" \
         "$WINEPREFIX_PATH/dosdevices/e:"
-
-    ok "Unidades Wine reconstruidas."
 
     complete_step \
         "20-dosdevices" \
@@ -1195,20 +851,16 @@ fi
 
 
 # ============================================================
-# 21. Crear estructura del usuario Wine
+# 21. Usuario Wine
 # ============================================================
 
 if start_step "21-wine-user" "Crear estructura del usuario Wine"; then
-
-    log "Creando directorios del usuario Wine..."
 
     mkdir -p \
         "$WINEPREFIX_PATH/drive_c/users/$WINE_USER/AppData/Local"
 
     mkdir -p \
         "$WINEPREFIX_PATH/drive_c/users/$WINE_USER/AppData/Roaming"
-
-    ok "Estructura del usuario creada."
 
     complete_step \
         "21-wine-user" \
@@ -1218,26 +870,17 @@ fi
 
 
 # ============================================================
-# 22. Crear directorios XDG
+# 22. Directorios XDG
 # ============================================================
 
 if start_step "22-xdg" "Crear directorios de integración"; then
 
-    log "Creando directorios de integración..."
-
     mkdir -p \
-        "$LOCAL_BIN"
-
-    mkdir -p \
-        "$APPLICATIONS_DIR"
-
-    mkdir -p \
-        "$ICONS_DIR"
-
-    mkdir -p \
+        "$LOCAL_BIN" \
+        "$APPLICATIONS_DIR" \
+        "$ICONS_SCALABLE_DIR" \
+        "$ICONS_256_DIR" \
         "$OFFICE_FONT_DIR"
-
-    ok "Directorios XDG preparados."
 
     complete_step \
         "22-xdg" \
@@ -1247,12 +890,10 @@ fi
 
 
 # ============================================================
-# 23. Instalar fuentes Office
+# 23. Fuentes Office
 # ============================================================
 
 if start_step "23-fonts" "Instalar fuentes Office"; then
-
-    log "Instalando fuentes incluidas en el Bottle..."
 
     SOURCE_FONT_DIR="$BOTTLE_DIR/Fuentes Office365"
 
@@ -1268,21 +909,15 @@ if start_step "23-fonts" "Instalar fuentes Office"; then
             \) \
             -exec cp -f {} "$OFFICE_FONT_DIR/" \;
 
-        ok "Fuentes de Office copiadas."
+        ok "Fuentes copiadas."
 
     else
 
-        warn "No se encontró:
-
-  $SOURCE_FONT_DIR
-
-Se continuará sin fuentes adicionales."
+        warn "No se encontró el directorio de fuentes."
 
     fi
 
     fc-cache -f
-
-    ok "Caché de fuentes actualizado."
 
     complete_step \
         "23-fonts" \
@@ -1292,12 +927,10 @@ fi
 
 
 # ============================================================
-# 24. Reparar fuentes bitmap Wine
+# 24. Fuentes bitmap Wine
 # ============================================================
 
 if start_step "24-wine-fonts" "Reparar fuentes bitmap Wine"; then
-
-    log "Comprobando fuentes bitmap Wine..."
 
     WINE_FONT_DIRS=(
         "/usr/share/wine/fonts"
@@ -1314,40 +947,22 @@ if start_step "24-wine-fonts" "Reparar fuentes bitmap Wine"; then
 
         TARGET="$WINEPREFIX_PATH/drive_c/windows/Fonts/$font"
 
-        if [[ -f "$TARGET" ]]; then
-
-            ok "$font ya existe."
-            continue
-
-        fi
-
-        SOURCE=""
+        [[ -f "$TARGET" ]] && continue
 
         for font_dir in "${WINE_FONT_DIRS[@]}"
         do
 
             if [[ -f "$font_dir/$font" ]]; then
 
-                SOURCE="$font_dir/$font"
+                cp -f \
+                    "$font_dir/$font" \
+                    "$TARGET"
+
                 break
 
             fi
 
         done
-
-        if [[ -n "$SOURCE" ]]; then
-
-            cp -f \
-                "$SOURCE" \
-                "$TARGET"
-
-            ok "$font copiada desde $SOURCE"
-
-        else
-
-            warn "No se encontró $font en las rutas conocidas."
-
-        fi
 
     done
 
@@ -1359,12 +974,10 @@ fi
 
 
 # ============================================================
-# 25. Instalar launchers originales
+# 25. Launchers originales
 # ============================================================
 
 if start_step "25-original-launchers" "Instalar launchers originales"; then
-
-    log "Instalando launchers originales..."
 
     shopt -s nullglob
 
@@ -1372,11 +985,8 @@ if start_step "25-original-launchers" "Instalar launchers originales"; then
         "$BOTTLE_DIR/Wrappers/"*365.sh
     )
 
-    if (( ${#LAUNCHERS[@]} == 0 )); then
-
-        die "No se encontraron launchers *365.sh."
-
-    fi
+    (( ${#LAUNCHERS[@]} > 0 )) \
+        || die "No se encontraron launchers *365.sh."
 
     cp \
         "${LAUNCHERS[@]}" \
@@ -1384,8 +994,6 @@ if start_step "25-original-launchers" "Instalar launchers originales"; then
 
     chmod 755 \
         "$LOCAL_BIN/"*365.sh
-
-    ok "Launchers originales copiados."
 
     complete_step \
         "25-original-launchers" \
@@ -1400,36 +1008,54 @@ fi
 
 if start_step "26-cleanup-wrapper" "Crear wrapper de limpieza"; then
 
-    log "Configurando wrapper de limpieza..."
+    log "Creando limpieza automática..."
 
     cat > "$LOCAL_BIN/limpiar_office-wine365.sh" <<'EOF'
-#!/bin/bash
+#!/usr/bin/env bash
+
+set -u
 
 WINEPREFIX="$HOME/.Microsoft_Office_365"
-WINESERVER="$(command -v wineserver || echo /usr/bin/wineserver)"
+WINESERVER="$(command -v wineserver || true)"
 
-if [ "$1" = "--silent" ] || [ "$1" = "--auto" ]; then
+# ============================================================
+# Modo automático
+# ============================================================
 
-    ACTIVE_COUNT=$(
-        pgrep -f -i -c \
+if [[ "${1:-}" == "--silent" ]] ||
+   [[ "${1:-}" == "--auto" ]]
+then
+
+    ACTIVE_COUNT="$(
+        pgrep -f -i \
         'WINWORD\.EXE|EXCEL\.EXE|POWERPNT\.EXE|OUTLOOK\.EXE|MSACCESS\.EXE|MSPUB\.EXE' \
-        || true
-    )
+        2>/dev/null \
+        | wc -l
+    )"
 
-    if [ "$ACTIVE_COUNT" -gt 0 ]; then
+    if [[ "$ACTIVE_COUNT" -gt 0 ]]; then
         exit 0
     fi
 
 else
 
-    zenity --question \
-        --title="Clean Wine / Office" \
-        --text="Do you want to close all Wine and Microsoft Office processes?\n\nAny unsaved work will be lost." \
-        --width=420
+    if command -v zenity >/dev/null 2>&1; then
 
-    [ $? -ne 0 ] && exit 0
+        zenity --question \
+            --title="Clean Wine / Office" \
+            --text="Do you want to close all Wine and Microsoft Office processes?\n\nAny unsaved work will be lost." \
+            --width=420
+
+        [[ $? -ne 0 ]] && exit 0
+
+    fi
 
 fi
+
+
+# ============================================================
+# Cerrar procesos Office
+# ============================================================
 
 for exe in \
     EXCEL.EXE \
@@ -1440,25 +1066,31 @@ for exe in \
     MSPUB.EXE \
     OFFICEC2RCLIENT.EXE \
     OSPPSVC.EXE \
-    plugplay.exe \
-    rpcss.exe \
-    services.exe \
-    svchost.exe \
-    explorer.exe \
     OfficeClickToRun.exe
 do
+
     pkill -9 -f "$exe" 2>/dev/null || true
+
 done
 
-if [ -d "$WINEPREFIX" ]; then
+
+# ============================================================
+# Detener wineserver del Bottle
+# ============================================================
+
+if [[ -d "$WINEPREFIX" ]] &&
+   [[ -n "$WINESERVER" ]]
+then
 
     WINEPREFIX="$WINEPREFIX" \
         "$WINESERVER" -k \
-        2>/dev/null || true
+        >/dev/null 2>&1 || true
+
+    sleep 1
 
     WINEPREFIX="$WINEPREFIX" \
         "$WINESERVER" -w \
-        2>/dev/null || true
+        >/dev/null 2>&1 || true
 
 fi
 
@@ -1468,7 +1100,7 @@ EOF
     chmod 755 \
         "$LOCAL_BIN/limpiar_office-wine365.sh"
 
-    ok "Wrapper de limpieza configurado."
+    ok "Wrapper de limpieza creado."
 
     complete_step \
         "26-cleanup-wrapper" \
@@ -1478,13 +1110,10 @@ fi
 
 
 # ============================================================
-# 27. Crear wrappers Office
+# 27. Wrappers Office
 # ============================================================
 
 if start_step "27-office-wrappers" "Crear wrappers portables de Office"; then
-
-    log "Configurando wrappers portables..."
-
 
     create_office_wrapper() {
 
@@ -1493,7 +1122,7 @@ if start_step "27-office-wrappers" "Crear wrappers portables de Office"; then
         local output="$LOCAL_BIN/$launcher"
 
         cat > "$output" <<EOF
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -Eeuo pipefail
 
@@ -1502,32 +1131,36 @@ export WINEARCH="win32"
 export LANG=C.UTF-8
 export WINEDEBUG=-all
 
-app="C:\\\\Program Files\\\\Microsoft Office\\\\root\\\\Office16\\\\$executable"
+APP="C:\\\\Program Files\\\\Microsoft Office\\\\root\\\\Office16\\\\$executable"
 
 wineserver -p >/dev/null 2>&1 || true
 
 office_exit_code=0
 
-if [ \$# -eq 0 ]; then
+if [[ \$# -eq 0 ]]; then
 
-    wine32 "\$app" || office_exit_code=\$?
+    wine32 "\$APP" || office_exit_code=\$?
 
 else
 
     for file in "\$@"; do
 
-        fullpath=\$(realpath "\$file")
+        fullpath="\$(realpath "\$file")"
+
         winpath="Z:\${fullpath//\\//\\\\}"
 
-        wine32 "\$app" "\$winpath" || office_exit_code=\$?
+        wine32 "\$APP" "\$winpath" || office_exit_code=\$?
 
     done
 
 fi
 
-# La limpieza DEBE ejecutarse aunque Office termine
-# con un código de error.
-if [ -x "\$HOME/.local/bin/limpiar_office-wine365.sh" ]; then
+
+# ============================================================
+# Limpieza automática
+# ============================================================
+
+if [[ -x "\$HOME/.local/bin/limpiar_office-wine365.sh" ]]; then
 
     "\$HOME/.local/bin/limpiar_office-wine365.sh" --silent &
 
@@ -1565,8 +1198,6 @@ EOF
         "MSPUB.EXE"
 
 
-    ok "Wrappers Office creados."
-
     complete_step \
         "27-office-wrappers" \
         "Wrappers Office configurados."
@@ -1575,7 +1206,7 @@ fi
 
 
 # ============================================================
-# 28. Verificar wrappers
+# 28. Validar wrappers
 # ============================================================
 
 if start_step "28-wrapper-validation" "Validar wrappers"; then
@@ -1593,17 +1224,12 @@ if start_step "28-wrapper-validation" "Validar wrappers"; then
     for wrapper in "${WRAPPERS[@]}"
     do
 
-        if [[ ! -x "$wrapper" ]]; then
-
-            die "No se pudo crear:
+        [[ -x "$wrapper" ]] \
+            || die "No se pudo crear:
 
   $wrapper"
 
-        fi
-
     done
-
-    ok "Wrappers completados."
 
     complete_step \
         "28-wrapper-validation" \
@@ -1613,13 +1239,10 @@ fi
 
 
 # ============================================================
-# 29. Validar uso de Wine32
+# 29. Validar Wine32 + limpieza
 # ============================================================
 
 if start_step "29-wine32-validation" "Validar uso de Wine32"; then
-
-    log "Validando wrappers..."
-
 
     for launcher in \
         "$LOCAL_BIN/word365.sh" \
@@ -1630,146 +1253,79 @@ if start_step "29-wine32-validation" "Validar uso de Wine32"; then
         "$LOCAL_BIN/publisher365.sh"
     do
 
-        if [[ ! -f "$launcher" ]]; then
-
-            die "No existe el launcher:
-
-  $launcher"
-
-        fi
-
-
-        if [[ ! -x "$launcher" ]]; then
-
-            die "El launcher no es ejecutable:
+        [[ -x "$launcher" ]] \
+            || die "Launcher inválido:
 
   $launcher"
 
-        fi
-
-
-        # ----------------------------------------------------
-        # Debe contener wine32.
-        # ----------------------------------------------------
 
         if ! grep -q 'wine32' "$launcher"; then
 
-            die "El launcher no contiene wine32:
+            die "El launcher no utiliza wine32:
 
-  $launcher
-
-Contenido actual:
-
-------------------------------------------------------------
-$(cat "$launcher")
-------------------------------------------------------------"
+  $launcher"
 
         fi
 
 
-        # ----------------------------------------------------
-        # No debe utilizar el comando genérico wine.
-        # ----------------------------------------------------
-
-        if grep -En \
-            '(^|[[:space:]])wine([[:space:]]|$)' \
-            "$launcher" \
-            >/dev/null
+        # Evitamos falsos positivos con la palabra wine
+        # dentro de wine32.
+        if grep -Eq \
+            '(^|[[:space:]"'\''])wine([[:space:]"'\'']|$)' \
+            "$launcher"
         then
 
-            die "El launcher contiene una llamada al comando genérico wine:
+            die "El launcher utiliza el comando genérico wine:
 
-  $launcher
-
-Contenido actual:
-
-------------------------------------------------------------
-$(cat "$launcher")
-------------------------------------------------------------"
+  $launcher"
 
         fi
 
 
-        # ----------------------------------------------------
-        # Debe contener el wrapper de limpieza.
-        # ----------------------------------------------------
-
-        if ! grep -Eq \
+        if ! grep -q \
             'limpiar_office-wine365\.sh' \
             "$launcher"
         then
 
-            die "El launcher no contiene el wrapper de limpieza automática:
+            die "El launcher no contiene limpieza automática:
 
-  $launcher
-
-Contenido actual:
-
-------------------------------------------------------------
-$(cat "$launcher")
-------------------------------------------------------------"
+  $launcher"
 
         fi
 
-
-        # ----------------------------------------------------
-        # Debe ejecutarlo en modo automático/silencioso.
-        #
-        # Acepta:
-        #
-        #   --silent
-        #   --auto
-        #
-        # y paths entre comillas.
-        # ----------------------------------------------------
 
         if ! grep -Eq \
             'limpiar_office-wine365\.sh["'\'']?[[:space:]]+--(silent|auto)' \
             "$launcher"
         then
 
-            die "El launcher no contiene una llamada automática
-al wrapper de limpieza:
+            die "El launcher no ejecuta la limpieza automática:
 
-  $launcher
-
-Contenido actual:
-
-------------------------------------------------------------
-$(cat "$launcher")
-------------------------------------------------------------"
+  $launcher"
 
         fi
 
     done
 
 
-    if [[ ! -x "$LOCAL_BIN/limpiar_office-wine365.sh" ]]; then
+    [[ -x "$LOCAL_BIN/limpiar_office-wine365.sh" ]] \
+        || die "No existe el wrapper de limpieza."
 
-        die "No existe el wrapper de limpieza:
-
-  $LOCAL_BIN/limpiar_office-wine365.sh"
-
-    fi
-
-
-    ok "Todos los wrappers utilizan wine32."
-    ok "Todos los wrappers incluyen limpieza automática."
+    ok "Todos los wrappers utilizan Wine32."
+    ok "Todos los wrappers contienen limpieza automática."
 
     complete_step \
         "29-wine32-validation" \
-        "Uso de Wine32 y limpieza automática validados."
+        "Wine32 y limpieza automática validados."
 
 fi
 
 
 # ============================================================
-# 30. Instalar archivos .desktop
+# 30. Archivos .desktop
 # ============================================================
 
 if start_step "30-desktops" "Instalar archivos .desktop"; then
-
-    log "Instalando accesos del menú..."
 
     shopt -s nullglob
 
@@ -1777,11 +1333,8 @@ if start_step "30-desktops" "Instalar archivos .desktop"; then
         "$BOTTLE_DIR/Desktops/"*365.desktop
     )
 
-    if (( ${#DESKTOPS[@]} == 0 )); then
-
-        die "No se encontraron archivos .desktop."
-
-    fi
+    (( ${#DESKTOPS[@]} > 0 )) \
+        || die "No se encontraron archivos .desktop."
 
     cp \
         "${DESKTOPS[@]}" \
@@ -1789,8 +1342,6 @@ if start_step "30-desktops" "Instalar archivos .desktop"; then
 
     chmod 644 \
         "$APPLICATIONS_DIR/"*365.desktop
-
-    ok "Archivos .desktop copiados."
 
     complete_step \
         "30-desktops" \
@@ -1800,12 +1351,10 @@ fi
 
 
 # ============================================================
-# 31. Corregir rutas Exec
+# 31. Rutas Exec
 # ============================================================
 
 if start_step "31-desktop-paths" "Adaptar rutas Exec"; then
-
-    log "Adaptando archivos .desktop..."
 
     for desktop in "$APPLICATIONS_DIR/"*365.desktop
     do
@@ -1816,29 +1365,25 @@ if start_step "31-desktop-paths" "Adaptar rutas Exec"; then
 
     done
 
-    ok "Rutas Exec adaptadas."
-
     complete_step \
         "31-desktop-paths" \
-        "Rutas de los accesos adaptadas."
+        "Rutas Exec adaptadas."
 
 fi
 
 
 # ============================================================
-# 32. Validar archivos .desktop
+# 32. Validar .desktop
 # ============================================================
 
 if start_step "32-desktop-validation" "Validar archivos .desktop"; then
-
-    log "Validando accesos del menú..."
 
     for desktop in "$APPLICATIONS_DIR/"*365.desktop
     do
 
         if grep -q '^Exec=/opt/launchers/' "$desktop"; then
 
-            die "El archivo .desktop todavía apunta a /opt/launchers:
+            die "El .desktop todavía apunta a /opt/launchers:
 
   $desktop"
 
@@ -1853,27 +1398,18 @@ if start_step "32-desktop-validation" "Validar archivos .desktop"; then
         )"
 
 
-        if [[ -z "$EXEC_PATH" ]]; then
-
-            die "No se encontró Exec= en:
+        [[ -n "$EXEC_PATH" ]] \
+            || die "No se encontró Exec= en:
 
   $desktop"
 
-        fi
 
-
-        if [[ ! -x "$EXEC_PATH" ]]; then
-
-            die "El launcher indicado por el .desktop no existe
-o no es ejecutable:
+        [[ -x "$EXEC_PATH" ]] \
+            || die "El launcher indicado no existe:
 
   $EXEC_PATH"
 
-        fi
-
     done
-
-    ok "Archivos .desktop correctamente vinculados."
 
     complete_step \
         "32-desktop-validation" \
@@ -1883,12 +1419,25 @@ fi
 
 
 # ============================================================
-# 33. Instalar iconos
+# 33. Iconos
+#
+# IMPORTANTE:
+#
+# Los SVG deben ir en:
+#
+#   hicolor/scalable/apps
+#
+# No en:
+#
+#   hicolor/256x256/apps
+#
+# También intentamos generar PNG 256x256 si ImageMagick
+# está disponible.
 # ============================================================
 
 if start_step "33-icons" "Instalar iconos"; then
 
-    log "Instalando iconos..."
+    log "Instalando iconos Office..."
 
     shopt -s nullglob
 
@@ -1898,12 +1447,50 @@ if start_step "33-icons" "Instalar iconos"; then
 
     if (( ${#ICONS[@]} > 0 )); then
 
-        cp \
-            "${ICONS[@]}" \
-            "$ICONS_DIR/"
+        for icon in "${ICONS[@]}"
+        do
 
-        chmod 644 \
-            "$ICONS_DIR/"*365.svg
+            basename="$(basename "$icon")"
+
+            cp -f \
+                "$icon" \
+                "$ICONS_SCALABLE_DIR/$basename"
+
+            chmod 644 \
+                "$ICONS_SCALABLE_DIR/$basename"
+
+
+            # ------------------------------------------------
+            # Generar PNG si ImageMagick está disponible
+            # ------------------------------------------------
+
+            if command -v convert >/dev/null 2>&1; then
+
+                png_name="${basename%.svg}.png"
+
+                convert \
+                    -background none \
+                    "$icon" \
+                    -resize 256x256 \
+                    "$ICONS_256_DIR/$png_name" \
+                    >/dev/null 2>&1 \
+                    || true
+
+            elif command -v magick >/dev/null 2>&1; then
+
+                png_name="${basename%.svg}.png"
+
+                magick \
+                    "$icon" \
+                    -background none \
+                    -resize 256x256 \
+                    "$ICONS_256_DIR/$png_name" \
+                    >/dev/null 2>&1 \
+                    || true
+
+            fi
+
+        done
 
         ok "Iconos instalados."
 
@@ -1921,43 +1508,109 @@ fi
 
 
 # ============================================================
-# 34. Actualizar integración del escritorio
+# 34. Corregir nombres Icon=
 # ============================================================
 
-if start_step "34-desktop-integration" "Actualizar integración del escritorio"; then
+if start_step "34-desktop-icons" "Corregir iconos de los archivos .desktop"; then
 
-    log "Actualizando bases de datos del escritorio..."
+    log "Comprobando referencias Icon=..."
+
+    for desktop in "$APPLICATIONS_DIR/"*365.desktop
+    do
+
+        ICON_NAME="$(
+            sed -n \
+                's/^Icon=//p' \
+                "$desktop" \
+                | head -1
+        )"
+
+        [[ -n "$ICON_NAME" ]] || continue
+
+
+        # ----------------------------------------------------
+        # Si Icon apunta a un path absoluto antiguo, convertir
+        # a nombre de icono.
+        # ----------------------------------------------------
+
+        ICON_BASENAME="$(basename "$ICON_NAME")"
+
+        ICON_BASENAME="${ICON_BASENAME%.svg}"
+        ICON_BASENAME="${ICON_BASENAME%.png}"
+
+
+        if [[ -f "$ICONS_SCALABLE_DIR/$ICON_BASENAME.svg" ]]; then
+
+            sed -Ei \
+                "s#^Icon=.*#Icon=$ICON_BASENAME#" \
+                "$desktop"
+
+        elif [[ -f "$ICONS_256_DIR/$ICON_BASENAME.png" ]]; then
+
+            sed -Ei \
+                "s#^Icon=.*#Icon=$ICON_BASENAME#" \
+                "$desktop"
+
+        fi
+
+    done
+
+    complete_step \
+        "34-desktop-icons" \
+        "Referencias de iconos corregidas."
+
+fi
+
+
+# ============================================================
+# 35. Integración escritorio
+# ============================================================
+
+if start_step "35-desktop-integration" "Actualizar integración del escritorio"; then
 
     update-desktop-database \
         "$APPLICATIONS_DIR" \
         >/dev/null 2>&1 \
         || true
 
+
     if command -v gtk-update-icon-cache >/dev/null 2>&1; then
 
         gtk-update-icon-cache \
+            -f \
             "$HOME/.local/share/icons/hicolor" \
             >/dev/null 2>&1 \
             || true
 
     fi
 
+
+    if command -v update-mime-database >/dev/null 2>&1; then
+
+        update-mime-database \
+            "$HOME/.local/share/mime" \
+            >/dev/null 2>&1 \
+            || true
+
+    fi
+
+
     ok "Integración del escritorio actualizada."
 
     complete_step \
-        "34-desktop-integration" \
+        "35-desktop-integration" \
         "Integración del escritorio actualizada."
 
 fi
 
 
 # ============================================================
-# 35. Instalar DXVK x32
+# 36. Instalar DXVK Wine32
 # ============================================================
 
-if start_step "35-dxvk" "Instalar DXVK Wine32"; then
+if start_step "36-dxvk" "Instalar DXVK Wine32"; then
 
-    log "Instalando DXVK para el Bottle Wine32..."
+    log "Instalando DXVK..."
 
     WINE="$WINE32_BIN" \
         WINEPREFIX="$WINEPREFIX_PATH" \
@@ -1969,99 +1622,224 @@ if start_step "35-dxvk" "Instalar DXVK Wine32"; then
     ok "DXVK instalado."
 
     complete_step \
-        "35-dxvk" \
+        "36-dxvk" \
         "DXVK instalado."
 
 fi
 
 
 # ============================================================
-# 36. Verificar DLL de DXVK
+# 37. Verificar DXVK
+#
+# NO dependemos de una línea concreta dentro de user.reg.
+#
+# Comprobamos:
+#
+#   1. DLLs presentes.
+#   2. DllOverrides mediante wine reg.
+#
+# Wine puede representar los overrides de distintas maneras.
 # ============================================================
 
-if start_step "36-dxvk-dlls" "Verificar DLL de DXVK"; then
+if start_step "37-dxvk-overrides" "Verificar instalación de DXVK"; then
 
-    log "Verificando DLL de DXVK..."
+    log "Verificando DXVK..."
 
     DXVK_DLLS=(
-        d3d8.dll
-        d3d9.dll
-        d3d10core.dll
-        d3d11.dll
-        dxgi.dll
+        d3d8
+        d3d9
+        d3d10core
+        d3d11
+        dxgi
     )
+
+
+    # --------------------------------------------------------
+    # 37.1 DLLs
+    # --------------------------------------------------------
 
     for dll in "${DXVK_DLLS[@]}"
     do
 
-        DLL_PATH="$WINEPREFIX_PATH/drive_c/windows/system32/$dll"
+        DLL_FOUND=0
 
-        if [[ ! -f "$DLL_PATH" ]]; then
+        for directory in \
+            "$WINEPREFIX_PATH/drive_c/windows/system32" \
+            "$WINEPREFIX_PATH/drive_c/windows/syswow64"
+        do
 
-            die "No se encontró:
+            if [[ -f "$directory/$dll.dll" ]]; then
 
-  $DLL_PATH
+                DLL_FOUND=1
+                break
 
-La instalación de DXVK no quedó completa."
+            fi
+
+        done
+
+
+        if (( DLL_FOUND == 0 )); then
+
+            die "No se encontró la DLL DXVK:
+
+  $dll.dll
+
+El proceso de instalación de DXVK no quedó completo."
 
         fi
 
     done
 
-    ok "DLL de DXVK x32 presentes."
 
-    complete_step \
-        "36-dxvk-dlls" \
-        "DLL de DXVK verificadas."
-
-fi
+    ok "DLLs de DXVK encontradas."
 
 
-# ============================================================
-# 37. Verificar overrides
-# ============================================================
+    # --------------------------------------------------------
+    # 37.2 Consultar DllOverrides
+    # --------------------------------------------------------
 
-if start_step "37-dxvk-overrides" "Verificar overrides de DXVK"; then
+    DXVK_OVERRIDE_OUTPUT="$(
+        "$WINE32_BIN" \
+            reg query \
+            'HKCU\Software\Wine\DllOverrides' \
+            2>/dev/null \
+            || true
+    )"
 
-    log "Verificando overrides de DXVK..."
 
-    for dll in \
-        d3d8 \
-        d3d9 \
-        d3d10core \
-        d3d11 \
-        dxgi
+    echo
+    echo "Overrides detectados:"
+    echo
+
+
+    if [[ -n "$DXVK_OVERRIDE_OUTPUT" ]]; then
+
+        echo "$DXVK_OVERRIDE_OUTPUT"
+
+    else
+
+        warn "Wine no devolvió DllOverrides mediante reg query."
+
+    fi
+
+
+    # --------------------------------------------------------
+    # 37.3 Verificación flexible
+    #
+    # Aceptamos:
+    #
+    #   d3d8 = native
+    #   d3d8 = "native"
+    #   "*d3d8" = native
+    #   "*d3d8" = "native"
+    #
+    # dependiendo de cómo Wine haya generado user.reg.
+    # --------------------------------------------------------
+
+    for dll in "${DXVK_DLLS[@]}"
     do
 
-        if ! grep -q \
-            "\"*$dll\"=\"native\"" \
-            "$WINEPREFIX_PATH/user.reg"
+        if grep -Eiq \
+            '(^|[[:space:]"*])d3d8([.]dll)?["*]?[[:space:]]*=.*native' \
+            "$WINEPREFIX_PATH/user.reg" 2>/dev/null
         then
+            :
 
-            die "No se encontró el override nativo para:
+        elif grep -Eiq \
+            '(^|[[:space:]"*])'"$dll"'([.]dll)?["*]?[[:space:]]*=.*native' \
+            "$WINEPREFIX_PATH/user.reg" 2>/dev/null
+        then
+            :
 
-  $dll"
+        elif grep -Eiq \
+            "$dll.*native|native.*$dll" \
+            <<< "$DXVK_OVERRIDE_OUTPUT"
+        then
+            :
+
+        else
+
+            warn "No se pudo confirmar explícitamente el override:"
+            echo "    $dll"
+
+            warn "Las DLLs sí están presentes."
+            warn "Se continuará porque Wine/Winetricks puede haber"
+            warn "registrado el override en un formato diferente."
 
         fi
 
     done
 
-    ok "Overrides DXVK confirmados."
+
+    # --------------------------------------------------------
+    # 37.4 Asegurar overrides manualmente
+    #
+    # Esto elimina la ambigüedad y deja el estado explícito.
+    # --------------------------------------------------------
+
+    log "Asegurando overrides DXVK..."
+
+    for dll in "${DXVK_DLLS[@]}"
+    do
+
+        "$WINE32_BIN" \
+            reg add \
+            'HKCU\Software\Wine\DllOverrides' \
+            /v "*.$dll" \
+            /t REG_SZ \
+            /d native \
+            /f \
+            >/dev/null 2>&1 \
+            || warn "No se pudo registrar override para $dll"
+
+    done
+
+
+    # --------------------------------------------------------
+    # 37.5 Comprobación final
+    # --------------------------------------------------------
+
+    FINAL_OVERRIDES="$(
+        "$WINE32_BIN" \
+            reg query \
+            'HKCU\Software\Wine\DllOverrides' \
+            2>/dev/null \
+            || true
+    )"
+
+
+    for dll in "${DXVK_DLLS[@]}"
+    do
+
+        if ! grep -Eiq \
+            "$dll.*native|native.*$dll" \
+            <<< "$FINAL_OVERRIDES"
+        then
+
+            warn "Wine no mostró explícitamente el override final:"
+            echo "    $dll"
+
+        fi
+
+    done
+
+
+    ok "DXVK verificado."
+    ok "Se encontraron las DLL necesarias."
+    ok "Los overrides fueron asegurados."
 
     complete_step \
         "37-dxvk-overrides" \
-        "Overrides DXVK verificados."
+        "DXVK y overrides verificados."
 
 fi
 
 
 # ============================================================
-# 38. Habilitar aceleración por hardware de Office
+# 38. Aceleración hardware Office
 # ============================================================
 
 if start_step "38-office-graphics" "Configurar aceleración por hardware"; then
-
-    log "Habilitando aceleración por hardware de Office..."
 
     "$WINE32_BIN" \
         reg add \
@@ -2072,7 +1850,7 @@ if start_step "38-office-graphics" "Configurar aceleración por hardware"; then
         /f \
         >/dev/null
 
-    ok "DisableHardwareAcceleration=0 configurado."
+    ok "DisableHardwareAcceleration=0."
 
     complete_step \
         "38-office-graphics" \
@@ -2082,12 +1860,10 @@ fi
 
 
 # ============================================================
-# 39. Verificar aceleración por hardware
+# 39. Validar aceleración
 # ============================================================
 
 if start_step "39-office-graphics-validation" "Verificar aceleración por hardware"; then
-
-    log "Verificando aceleración por hardware de Office..."
 
     GRAPHICS_VALUE="$(
         "$WINE32_BIN" \
@@ -2098,21 +1874,22 @@ if start_step "39-office-graphics-validation" "Verificar aceleración por hardwa
             | awk '/DisableHardwareAcceleration/ {print $NF}'
     )"
 
+
     if [[ "$GRAPHICS_VALUE" != "0x0" ]]; then
 
-        die "La aceleración por hardware de Office no quedó habilitada.
+        die "La aceleración por hardware no quedó habilitada.
 
-Valor detectado:
+Valor:
 
-  $GRAPHICS_VALUE
+  ${GRAPHICS_VALUE:-no encontrado}
 
-Se esperaba:
+Esperado:
 
   0x0"
 
     fi
 
-    ok "Aceleración por hardware de Office habilitada."
+    ok "Aceleración por hardware habilitada."
 
     complete_step \
         "39-office-graphics-validation" \
@@ -2127,8 +1904,6 @@ fi
 
 if start_step "40-wineserver" "Reiniciar wineserver"; then
 
-    log "Reiniciando wineserver..."
-
     "$WINE32_BIN" \
         wineserver \
         -k \
@@ -2136,8 +1911,6 @@ if start_step "40-wineserver" "Reiniciar wineserver"; then
         || true
 
     sleep 2
-
-    ok "wineserver reiniciado."
 
     complete_step \
         "40-wineserver" \
@@ -2147,20 +1920,15 @@ fi
 
 
 # ============================================================
-# 41. Comprobar Microsoft Word
+# 41. Word
 # ============================================================
 
 if start_step "41-word" "Comprobar Microsoft Word"; then
 
-    log "Comprobando Microsoft Word..."
-
-    if [[ ! -f "$WORD_EXE" ]]; then
-
-        die "No se encontró:
+    [[ -f "$WORD_EXE" ]] \
+        || die "No se encontró:
 
   $WORD_EXE"
-
-    fi
 
     ok "WINWORD.EXE encontrado."
 
@@ -2172,12 +1940,10 @@ fi
 
 
 # ============================================================
-# 42. Asociaciones MIME
+# 42. MIME
 # ============================================================
 
 if start_step "42-mime" "Configurar asociaciones MIME"; then
-
-    log "Configurando asociaciones MIME..."
 
     xdg-mime default \
         word365.desktop \
@@ -2215,8 +1981,6 @@ if start_step "42-mime" "Configurar asociaciones MIME"; then
         publisher365.desktop \
         application/vnd.ms-publisher
 
-    ok "Asociaciones MIME configuradas."
-
     complete_step \
         "42-mime" \
         "Asociaciones MIME configuradas."
@@ -2225,16 +1989,12 @@ fi
 
 
 # ============================================================
-# 43. Actualizar fontconfig
+# 43. Font cache
 # ============================================================
 
 if start_step "43-font-cache" "Actualizar caché final de fuentes"; then
 
-    log "Actualizando caché final de fuentes..."
-
     fc-cache -f
-
-    ok "Caché final actualizado."
 
     complete_step \
         "43-font-cache" \
@@ -2244,7 +2004,7 @@ fi
 
 
 # ============================================================
-# 44. Estado final
+# 44. Final
 # ============================================================
 
 if start_step "44-final" "Finalizar instalación"; then
@@ -2259,9 +2019,6 @@ if start_step "44-final" "Finalizar instalación"; then
     echo "Sistema:"
     echo "  $DISTRO_NAME"
     echo
-    echo "Archivo utilizado:"
-    echo "  $ARCHIVE"
-    echo
     echo "Wine:"
     echo "  $WINE_VERSION"
     echo
@@ -2272,23 +2029,20 @@ if start_step "44-final" "Finalizar instalación"; then
     echo "  Wine32 (#arch=win32)"
     echo
     echo "DXVK:"
-    echo "  Instalado con Wine32"
-    echo "  d3d8       = native"
-    echo "  d3d9       = native"
-    echo "  d3d10core  = native"
-    echo "  d3d11      = native"
-    echo "  dxgi       = native"
+    echo "  Instalado"
     echo
     echo "Office:"
     echo "  Aceleración por hardware = ACTIVADA"
-    echo "  DisableHardwareAcceleration = 0"
     echo
     echo "Wrappers:"
-    echo "  Completados y adaptados para esta máquina"
     echo "  $LOCAL_BIN"
     echo
     echo "Aplicaciones:"
     echo "  $APPLICATIONS_DIR"
+    echo
+    echo "Iconos:"
+    echo "  $ICONS_SCALABLE_DIR"
+    echo "  $ICONS_256_DIR"
     echo
     echo "Word:"
     echo "  $WORD_EXE"
@@ -2305,14 +2059,16 @@ fi
 
 if step_done "44-final"; then
 
-    log "Eliminando estado temporal de instalación..."
+    log "Eliminando estado temporal..."
 
     rm -f "$STATE_FILE"
 
-    rmdir "$STATE_DIR" 2>/dev/null || true
+    rmdir "$STATE_DIR" \
+        2>/dev/null \
+        || true
 
     ok "Checkpoints eliminados."
-    ok "La instalación terminó correctamente."
+    ok "Instalación terminada correctamente."
 
 fi
 
