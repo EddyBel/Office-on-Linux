@@ -302,8 +302,8 @@ if start_step "05-i386" "Habilitar arquitectura i386"; then
 
     log "Comprobando soporte i386..."
 
-    if ! dpkg --print-foreign-architectures \
-        | grep -qx 'i386'
+    if ! dpkg --print-foreign-architectures |
+        grep -qx 'i386'
     then
 
         sudo dpkg --add-architecture i386
@@ -515,6 +515,7 @@ if start_step "09-extraction-check" "Comprobar extracción anterior"; then
         else
 
             warn "Extracción incompleta encontrada."
+
             rm -rf "$BOTTLE_DIR"
 
             ok "Extracción incompleta eliminada."
@@ -649,9 +650,9 @@ if start_step "13-vulkan" "Comprobar Vulkan"; then
     [[ -n "$VULKAN_SUMMARY" ]] \
         || die "Vulkan no respondió correctamente."
 
-    echo "$VULKAN_SUMMARY" \
-        | grep -E 'deviceName|driverName|driverInfo' \
-        | head -20 \
+    echo "$VULKAN_SUMMARY" |
+        grep -E 'deviceName|driverName|driverInfo' |
+        head -20 \
         || true
 
     ok "Vulkan responde correctamente."
@@ -1662,16 +1663,6 @@ if start_step "37-dxvk-overrides" "Verificar instalación de DXVK"; then
 
     # --------------------------------------------------------
     # 37.2 Asegurar DllOverrides
-    #
-    # Wine usa:
-    #
-    #   HKCU\Software\Wine\DllOverrides
-    #
-    # con entradas como:
-    #
-    #   d3d8 = native
-    #   d3d9 = native
-    #
     # --------------------------------------------------------
 
     log "Configurando overrides DXVK..."
@@ -1686,11 +1677,8 @@ if start_step "37-dxvk-overrides" "Verificar instalación de DXVK"; then
                 /v "$dll" \
                 2>/dev/null \
                 | awk -v dll="$dll" '
-                    BEGIN {
-                        IGNORECASE=1
-                    }
-
-                    $1 == dll && $2 == "REG_SZ" {
+                    tolower($1) == tolower(dll) &&
+                    $2 == "REG_SZ" {
                         print $3
                         exit
                     }
@@ -1737,7 +1725,7 @@ if start_step "37-dxvk-overrides" "Verificar instalación de DXVK"; then
 
 
     # --------------------------------------------------------
-    # 37.3 Validación final de cada override
+    # 37.3 Validación final
     # --------------------------------------------------------
 
     for dll in "${DXVK_DLLS[@]}"
@@ -1750,11 +1738,8 @@ if start_step "37-dxvk-overrides" "Verificar instalación de DXVK"; then
                 /v "$dll" \
                 2>/dev/null \
                 | awk -v dll="$dll" '
-                    BEGIN {
-                        IGNORECASE=1
-                    }
-
-                    $1 == dll && $2 == "REG_SZ" {
+                    tolower($1) == tolower(dll) &&
+                    $2 == "REG_SZ" {
                         print $3
                         exit
                     }
@@ -1821,23 +1806,46 @@ fi
 
 # ============================================================
 # 38. Configurar aceleración hardware Office
+#
+# IMPORTANTE:
+#
+# Esta etapa NO es bloqueante.
+#
+# DisableHardwareAcceleration = 0 significa que Office NO está
+# configurado para deshabilitar la aceleración por hardware.
+#
+# Esto no garantiza que Wine/DXVK esté usando realmente la GPU.
 # ============================================================
 
 if start_step "38-office-graphics" "Configurar aceleración por hardware"; then
 
     log "Configurando aceleración gráfica de Office..."
 
-    "$WINE32_BIN" \
+    GRAPHICS_SET_STATUS=0
+
+    if "$WINE32_BIN" \
         reg add \
         'HKCU\Software\Microsoft\Office\16.0\Common\Graphics' \
         /v DisableHardwareAcceleration \
         /t REG_DWORD \
         /d 0 \
         /f
+    then
+
+        ok "Valor DisableHardwareAcceleration configurado en 0."
+
+    else
+
+        GRAPHICS_SET_STATUS=1
+
+        warn "No se pudo escribir la configuración de aceleración gráfica."
+        warn "La instalación continuará de todos modos."
+
+    fi
 
 
     # --------------------------------------------------------
-    # Verificación inmediata
+    # Verificación no bloqueante
     # --------------------------------------------------------
 
     GRAPHICS_VERIFY_OUTPUT="$(
@@ -1845,144 +1853,153 @@ if start_step "38-office-graphics" "Configurar aceleración por hardware"; then
             reg query \
             'HKCU\Software\Microsoft\Office\16.0\Common\Graphics' \
             /v DisableHardwareAcceleration \
-            2>/dev/null \
+            2>&1 \
             || true
     )"
 
 
     GRAPHICS_VERIFY_VALUE="$(
         printf '%s\n' "$GRAPHICS_VERIFY_OUTPUT" |
-            awk '
-                /DisableHardwareAcceleration/ {
-                    for (i = 1; i <= NF; i++) {
-                        if ($i ~ /^0x[0-9a-fA-F]+$/) {
-                            print tolower($i)
-                            exit
-                        }
-                    }
-                }
-            ' |
+            grep -Eo '0x[0-9A-Fa-f]+' |
+            head -1 |
+            tr '[:upper:]' '[:lower:]' |
             tr -d '[:space:]'
     )"
 
 
-    if [[ "$GRAPHICS_VERIFY_VALUE" != "0x0" ]]; then
+    if [[ "$GRAPHICS_VERIFY_VALUE" == "0x0" ]]; then
 
-        die "Wine no confirmó correctamente la configuración gráfica.
+        ok "DisableHardwareAcceleration = 0x0."
+        ok "Office no tiene deshabilitada la aceleración por hardware."
 
-Valor detectado:
+    else
 
-  ${GRAPHICS_VERIFY_VALUE:-no encontrado}
+        warn "No se pudo confirmar la configuración de aceleración por hardware."
+        warn "Esta condición NO bloqueará la instalación."
 
-Esperado:
-
-  0x0
-
-Salida completa:
-
-$GRAPHICS_VERIFY_OUTPUT"
+        echo
+        echo "------------------------------------------------------------"
+        echo " Salida cruda de Wine"
+        echo "------------------------------------------------------------"
+        echo
+        printf '%s\n' "$GRAPHICS_VERIFY_OUTPUT"
+        echo
+        echo "------------------------------------------------------------"
+        echo
 
     fi
 
 
-    ok "DisableHardwareAcceleration = 0x0."
+    if (( GRAPHICS_SET_STATUS != 0 )); then
+
+        warn "La escritura de la configuración gráfica falló."
+        warn "Se continuará con la instalación."
+
+    fi
+
 
     complete_step \
         "38-office-graphics" \
-        "Aceleración gráfica configurada."
+        "Configuración de aceleración procesada (no bloqueante)."
 
 fi
 
 
 # ============================================================
 # 39. Validar configuración de aceleración
+#
+# Esta etapa es exclusivamente informativa.
+#
+# NO puede bloquear la instalación.
 # ============================================================
 
 if start_step "39-office-graphics-validation" "Verificar configuración de aceleración"; then
 
     log "Verificando configuración gráfica de Office..."
 
+
     GRAPHICS_QUERY="$(
         "$WINE32_BIN" \
             reg query \
             'HKCU\Software\Microsoft\Office\16.0\Common\Graphics' \
             /v DisableHardwareAcceleration \
-            2>/dev/null \
+            2>&1 \
             || true
-    )
+    )"
 
 
     echo
     echo "Registro de Office:"
     echo
-    echo "$GRAPHICS_QUERY"
+    printf '%s\n' "$GRAPHICS_QUERY"
     echo
 
 
     # --------------------------------------------------------
-    # Extraer exclusivamente el DWORD hexadecimal.
+    # Extraer directamente cualquier DWORD hexadecimal.
     #
     # Ejemplo:
     #
-    # DisableHardwareAcceleration    REG_DWORD    0x0
+    # DisableHardwareAcceleration     REG_DWORD     0x0
     #
     # --------------------------------------------------------
 
     GRAPHICS_VALUE="$(
         printf '%s\n' "$GRAPHICS_QUERY" |
-            awk '
-                /DisableHardwareAcceleration/ {
-                    for (i = 1; i <= NF; i++) {
-                        if ($i ~ /^0x[0-9a-fA-F]+$/) {
-                            print tolower($i)
-                            exit
-                        }
-                    }
-                }
-            ' |
+            grep -Eo '0x[0-9A-Fa-f]+' |
+            head -1 |
+            tr '[:upper:]' '[:lower:]' |
             tr -d '[:space:]'
     )"
 
 
     # --------------------------------------------------------
-    # Validación
+    # Resultado
     # --------------------------------------------------------
 
-    if [[ "$GRAPHICS_VALUE" != "0x0" ]]; then
+    if [[ "$GRAPHICS_VALUE" == "0x0" ]]; then
+
+        ok "DisableHardwareAcceleration = 0x0"
+        ok "Office no tiene deshabilitada la aceleración por hardware."
+
+    else
+
+        warn "No se pudo confirmar DisableHardwareAcceleration = 0x0."
+        warn "La aceleración por hardware no es una condición bloqueante."
+        warn "La instalación continuará normalmente."
+
+        echo
+        echo "============================================================"
+        echo " SALIDA CRUDA DE LA CONFIGURACIÓN GRÁFICA"
+        echo "============================================================"
+        echo
+
+        if [[ -n "$GRAPHICS_QUERY" ]]; then
+
+            printf '%s\n' "$GRAPHICS_QUERY"
+
+        else
+
+            echo "(Wine no produjo ninguna salida.)"
+
+        fi
 
         echo
         echo "Valor detectado:"
-        printf '  [%s]\n' "$GRAPHICS_VALUE"
+        echo "  ${GRAPHICS_VALUE:-no encontrado}"
         echo
-
-        die "La configuración de aceleración de Office
-no quedó como se esperaba.
-
-Valor detectado:
-
-  ${GRAPHICS_VALUE:-no encontrado}
-
-Valor esperado:
-
-  0x0
-
-Salida completa:
-
-$GRAPHICS_QUERY"
+        echo "Valor esperado:"
+        echo "  0x0"
+        echo
+        echo "============================================================"
+        echo
 
     fi
 
 
-    # --------------------------------------------------------
-    # Confirmación
-    # --------------------------------------------------------
-
-    ok "DisableHardwareAcceleration = 0x0"
-    ok "Office no tiene deshabilitada la aceleración por hardware."
-
     complete_step \
         "39-office-graphics-validation" \
-        "Configuración de aceleración verificada."
+        "Verificación gráfica completada (informativa, no bloqueante)."
 
 fi
 
@@ -2120,8 +2137,9 @@ if start_step "44-final" "Finalizar instalación"; then
     echo "DXVK:"
     echo "  Instalado y configurado"
     echo
-    echo "Office:"
-    echo "  DisableHardwareAcceleration = 0"
+    echo "Aceleración gráfica:"
+    echo "  Configuración intentada"
+    echo "  Verificación no bloqueante"
     echo
     echo "Wrappers:"
     echo "  $LOCAL_BIN"
@@ -2143,20 +2161,26 @@ fi
 
 
 # ============================================================
-# 45. Limpiar checkpoints
+# 45. Marcar instalación como completada
+#
+# NO eliminar STATE_FILE.
+#
+# Mantener los checkpoints permite:
+#
+#   - reanudar una instalación
+#   - auditar qué etapas terminaron
+#   - volver a ejecutar el instalador sin que Stage 8
+#     detecte un Bottle huérfano
 # ============================================================
 
 if step_done "44-final"; then
 
-    log "Eliminando estado temporal..."
+    log "Conservando estado de instalación..."
 
-    rm -f "$STATE_FILE"
-
-    rmdir "$STATE_DIR" \
-        2>/dev/null \
-        || true
-
-    ok "Checkpoints eliminados."
+    ok "Checkpoints conservados:"
+    echo
+    echo "  $STATE_FILE"
+    echo
     ok "Instalación terminada correctamente."
 
 fi
