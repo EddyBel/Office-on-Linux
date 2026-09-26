@@ -18,7 +18,7 @@ Canal original:
 
 ```text
 https://www.youtube.com/@formateando
-```
+````
 
 El procedimiento original utiliza un entorno preconfigurado de Microsoft Office 365 basado en Wine/CrossOver.
 
@@ -36,14 +36,14 @@ Método original de Formateando
              ↓
      Adaptación por entorno
              │
-       ┌─────┼─────┐
-       ↓     ↓     ↓
-    Fedora Debian Arch
+       ┌─────┼─────┬─────┐
+       ↓     ↓     ↓     ↓
+    Fedora Debian Ubuntu Mint
 ```
 
 Este proyecto no considera que una adaptación para una distribución sea automáticamente válida para las demás.
 
-Cada migración se prueba y documenta de forma independiente.
+Cada plataforma se prueba de forma independiente.
 
 ---
 
@@ -80,42 +80,36 @@ Por ejemplo:
 Fedora/
 ```
 
-contiene la adaptación realizada para Fedora.
+contiene la adaptación realizada específicamente para Fedora.
 
-En el futuro pueden incorporarse:
-
-```text
-Debian/
-Ubuntu/
-Linux-Mint/
-Arch/
-openSUSE/
-...
-```
+En el futuro pueden incorporarse otras plataformas o adaptaciones específicas.
 
 La estructura y el contenido de cada adaptación pueden variar dependiendo de las necesidades de la distribución.
 
 ---
 
-# Estado de las migraciones
+# Estado de las plataformas
 
-La siguiente tabla se utilizará para registrar los sistemas a los que el método ha sido migrado y probado.
+La siguiente tabla registra las plataformas en las que el método ha sido probado.
 
-| Sistema    | Versión probada | Estado      | Arquitectura   | Notas                                                                                   |
-| ---------- | --------------- | ----------- | -------------- | --------------------------------------------------------------------------------------- |
-| **Fedora** | **Fedora 44**   | ✅ Probado   | Wine32 / win32 | Adaptación funcional del método, incluyendo DXVK y configuración específica para Fedora |
-| Debian     | —               | ⏳ Pendiente | —              | —                                                                                       |
-| Ubuntu     | —               | ⏳ Pendiente | —              | —                                                                                       |
-| Linux Mint | —               | ⏳ Pendiente | —              | —                                                                                       |
-| Arch Linux | —               | ⏳ Pendiente | —              | —                                                                                       |
+| Sistema            | Versión probada | Estado          | Arquitectura   | Notas                                                                                              |
+| ------------------ | --------------- | --------------- | -------------- | -------------------------------------------------------------------------------------------------- |
+| **Fedora**         | **Fedora 44**   | ✅ Probado       | Wine32 / win32 | Adaptación específica para Fedora, incluyendo DXVK, Wine32 e integración con el escritorio        |
+| **Debian**         | **Debian 13**   | ✅ Probado       | Wine32 / win32 | Instalación probada utilizando el método adaptado para Debian                                    |
+| **Ubuntu**         | **Ubuntu**      | ✅ Probado       | Wine32 / win32 | Instalación probada utilizando el método adaptado para Ubuntu                                     |
+| **Linux Mint**     | **Linux Mint**  | ✅ Probado       | Wine32 / win32 | Instalación probada utilizando el método adaptado para Linux Mint                                 |
+| **Arch Linux**     | —               | 🧪 Experimental | Wine32 / win32 | Instalador adaptado para Arch Linux, pendiente de pruebas en un sistema Arch real                 |
+| openSUSE           | —               | ⏳ Pendiente     | —              | Sin adaptación ni prueba documentada actualmente                                                   |
 
-> La tabla representa únicamente el estado de las migraciones documentadas en este repositorio. Un método reportado como funcional en una distribución no implica compatibilidad automática con otras.
+> **Probado** significa que la instalación fue ejecutada y verificada en la plataforma indicada. No implica que todas las funciones de Microsoft Office hayan sido validadas exhaustivamente.
+
+> La compatibilidad entre distribuciones no debe asumirse automáticamente. Una actualización de la distribución, Wine, DXVK, drivers o componentes del sistema puede modificar el comportamiento del método.
 
 ---
 
 # Fedora
 
-La primera migración documentada corresponde a:
+La adaptación específica actualmente documentada corresponde a:
 
 ```text
 Fedora 44
@@ -169,9 +163,45 @@ Fedora/
 
 ---
 
+# Debian, Ubuntu y Linux Mint
+
+El método también ha sido probado en:
+
+```text
+Debian
+Ubuntu
+Linux Mint
+```
+
+Estas pruebas tienen como objetivo comprobar que el Bottle y el procedimiento general pueden utilizarse fuera del entorno Fedora.
+
+La existencia de una prueba exitosa en estas plataformas no significa que utilicen exactamente la misma configuración del sistema.
+
+Entre las diferencias que pueden existir se encuentran:
+
+```text
+gestor de paquetes
+versiones de Wine
+Wine32
+Winetricks
+Vulkan
+Mesa
+drivers gráficos
+rutas del sistema
+integración XDG
+fuentes
+configuración del escritorio
+```
+
+Por esta razón, cada instalación se considera una prueba independiente.
+
+Las adaptaciones específicas de cada plataforma deben documentar cualquier modificación necesaria respecto al procedimiento original.
+
+---
+
 # Aplicaciones probadas
 
-Durante las pruebas realizadas sobre la adaptación Fedora se comprobó el inicio de las principales aplicaciones incluidas en el Bottle:
+Durante las pruebas realizadas sobre el Bottle y sus adaptaciones se comprobó el inicio de las principales aplicaciones incluidas:
 
 ```text
 [✓] Microsoft Word
@@ -185,7 +215,7 @@ Durante las pruebas realizadas sobre la adaptación Fedora se comprobó el inici
 
 El hecho de que una aplicación pueda iniciarse no implica que todas sus funciones hayan sido validadas.
 
-La compatibilidad debe entenderse en función de las pruebas concretas realizadas para cada aplicación.
+La compatibilidad debe entenderse en función de las pruebas concretas realizadas para cada aplicación y plataforma.
 
 ---
 
@@ -309,7 +339,7 @@ font subsystem
 Wayland
 ```
 
-y las pruebas realizadas antes de determinar la corrección.
+y las pruebas realizadas antes de determinar la configuración funcional.
 
 ---
 
@@ -520,13 +550,24 @@ Las adaptaciones no deben confundirse con el método original.
 
 # Estado actual
 
-Actualmente el método cuenta con una adaptación documentada y probada para:
+Actualmente el método ha sido probado en:
 
 ```text
 Fedora 44
+Debian 13
+Ubuntu
+Linux Mint
 ```
 
-La investigación y migración hacia otros entornos continuará conforme se realicen pruebas reproducibles.
+La adaptación específica para Fedora se encuentra documentada dentro de:
+
+```text
+Fedora/
+```
+
+Las pruebas de Debian, Ubuntu y Linux Mint confirman el funcionamiento del procedimiento en esos entornos, pero cada plataforma puede requerir modificaciones particulares debido a diferencias en versiones de Wine, dependencias, drivers y configuración del sistema.
+
+La investigación y migración hacia otros entornos continuará conforme se realicen nuevas pruebas reproducibles.
 
 La tabla de compatibilidad de este README será actualizada conforme se incorporen nuevas plataformas.
 
@@ -546,8 +587,17 @@ Formateando/
 │   ├── analysis-dxvk.md
 │   └── analysis-network.md
 │
-└── Fedora/
-    └── README.md
+├── Fedora/
+│   └── README.md
+│
+├── Debian/
+│   └── ...
+│
+├── Ubuntu/
+│   └── ...
+│
+└── Linux-Mint/
+    └── ...
 ```
 
 Si quieres conocer el estado de una adaptación concreta, consulta su directorio.

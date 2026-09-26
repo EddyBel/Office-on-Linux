@@ -3,44 +3,38 @@
 # ============================================================
 # Microsoft Office 365 - Bottle preconstruido
 #
-# Fedora + Wine + Wine32 + DXVK
+# Arch Linux + Wine32 + DXVK
 #
 # Instalación por usuario
 #
-# Validado originalmente sobre:
-#
-#   Fedora 44
-#   Wine 11.0 Staging
-#   Winetricks 20260125
-#   DXVK 3.1.1
-#   Mesa 26.2.3
-#   Vulkan 1.4.x
-#
 # Compatibilidad:
 #
-#   Este instalador no requiere una versión específica
-#   de Fedora.
+#   Arch Linux
 #
-#   Puede utilizarse en versiones de Fedora que dispongan
-#   de las dependencias y capacidades necesarias:
+#   El Bottle es un prefijo Wine32:
 #
-#     - Wine x86_64
-#     - Wine i686 / Wine32
-#     - Winetricks
-#     - Vulkan x86_64
-#     - Vulkan i686
-#     - Vulkan funcional
-#     - Samba Winbind
-#     - Zenity
-#     - Fontconfig
+#       #arch=win32
+#
+#   Arch Linux utiliza actualmente Wine WoW64 como configuración
+#   oficial. Este Bottle requiere un Wine32 real, por lo que
+#   se utiliza el paquete wine32 de AUR cuando es necesario.
+#
+# Requisitos:
+#
+#   - Arch Linux
+#   - multilib habilitado
+#   - wine32
+#   - winetricks
+#   - Vulkan x86_64
+#   - Vulkan i686 / lib32
+#   - controlador Vulkan funcional
+#   - Zenity
+#   - Fontconfig
+#   - Samba / Winbind
 #
 # Bottle:
 #
 #   ~/.Microsoft_Office_365
-#
-# El Bottle es un prefijo Wine32:
-#
-#   #arch=win32
 #
 # Todas las aplicaciones de Office se ejecutan mediante:
 #
@@ -70,6 +64,7 @@ readonly SOURCE_BOTTLE="$BOTTLE_DIR/.Microsoft_Office_365"
 
 readonly WINEPREFIX_PATH="$HOME/.Microsoft_Office_365"
 
+# En Arch el comando requerido es wine32.
 readonly WINE32_BIN="wine32"
 
 readonly INSTALL_USER="$(id -un)"
@@ -79,15 +74,16 @@ readonly WINE_USER="crossover"
 
 readonly LOCAL_BIN="$HOME/.local/bin"
 readonly APPLICATIONS_DIR="$HOME/.local/share/applications"
-readonly ICONS_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
-readonly OFFICE_FONT_DIR="$HOME/.local/share/fonts/Office365"
 
-readonly WINE_FONT_DIR="/usr/share/wine/fonts"
+# Mantener la misma estructura del instalador Fedora.
+readonly ICONS_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
+
+readonly OFFICE_FONT_DIR="$HOME/.local/share/fonts/Office365"
 
 readonly WORD_EXE="$WINEPREFIX_PATH/drive_c/Program Files/Microsoft Office/root/Office16/WINWORD.EXE"
 
 # Estado de instalación.
-readonly STATE_DIR="$HOME/.local/state/office365-fedora-installer"
+readonly STATE_DIR="$HOME/.local/state/office365-arch-installer"
 readonly STATE_FILE="$STATE_DIR/progress"
 
 
@@ -204,67 +200,131 @@ No se encontró:
     # shellcheck disable=SC1091
     source /etc/os-release
 
-    if [[ "${ID:-}" != "fedora" ]]; then
-        die "Este instalador está diseñado para Fedora.
+    if [[ "${ID:-}" != "arch" ]]; then
+        die "Este instalador está diseñado para Arch Linux.
 
 Sistema detectado:
 
   ${PRETTY_NAME:-desconocido}
 
-Este instalador no está diseñado para Debian, Ubuntu, Arch,
-openSUSE u otras distribuciones."
+Este instalador no está diseñado para Fedora, Debian,
+Ubuntu, Linux Mint u otras distribuciones."
     fi
 
-    FEDORA_VERSION="${VERSION_ID:-unknown}"
-    FEDORA_NAME="${PRETTY_NAME:-Fedora $FEDORA_VERSION}"
+    ARCH_VERSION="${BUILD_ID:-rolling}"
+    ARCH_NAME="${PRETTY_NAME:-Arch Linux}"
 
-    ok "Fedora detectado:"
-    echo "    $FEDORA_NAME"
+    ok "Arch Linux detectado:"
+    echo "    $ARCH_NAME"
 
     complete_step "02-system" "Sistema operativo verificado."
 
 else
 
-    # Necesario para etapas posteriores cuando se reanuda.
     source /etc/os-release
 
-    FEDORA_VERSION="${VERSION_ID:-unknown}"
-    FEDORA_NAME="${PRETTY_NAME:-Fedora $FEDORA_VERSION}"
+    ARCH_VERSION="${BUILD_ID:-rolling}"
+    ARCH_NAME="${PRETTY_NAME:-Arch Linux}"
 
 fi
 
 
 # ============================================================
-# 3. Comprobar DNF
+# 3. Comprobar Pacman
 # ============================================================
 
-if start_step "03-dnf" "Comprobar gestor de paquetes"; then
+if start_step "03-pacman" "Comprobar gestor de paquetes"; then
 
-    log "Comprobando gestor de paquetes..."
+    log "Comprobando pacman..."
 
-    command -v dnf >/dev/null 2>&1 \
-        || die "No se encontró dnf.
+    command -v pacman >/dev/null 2>&1 \
+        || die "No se encontró pacman.
 
-Este instalador requiere el gestor de paquetes DNF de Fedora."
+Este instalador requiere el gestor de paquetes de Arch Linux."
 
-    ok "DNF disponible."
+    ok "Pacman disponible."
 
-    complete_step "03-dnf" "DNF disponible."
+    complete_step "03-pacman" "Pacman disponible."
 
 fi
 
 
 # ============================================================
-# 4. Comprobar archivo TAR / descargar si es necesario
+# 4. Comprobar multilib
 # ============================================================
 
-if start_step "04-archive" "Localizar o descargar Bottle"; then
+if start_step "04-multilib" "Comprobar repositorio multilib"; then
+
+    log "Comprobando repositorio multilib..."
+
+    if ! awk '
+        /^\[multilib\]/ {
+            found = 1
+            next
+        }
+
+        found && /^Include[[:space:]]*=/ {
+            active = 1
+            exit
+        }
+
+        found && /^\[/ {
+            exit
+        }
+    ' /etc/pacman.conf
+    then
+
+        die "El repositorio multilib no parece estar habilitado.
+
+Este Bottle requiere Wine32 y bibliotecas de 32 bits.
+
+Habilita en:
+
+  /etc/pacman.conf
+
+la sección:
+
+  [multilib]
+  Include = /etc/pacman.d/mirrorlist
+
+Después ejecuta:
+
+  sudo pacman -Syu
+
+y vuelve a ejecutar este instalador."
+    fi
+
+    ok "Repositorio multilib habilitado."
+
+    complete_step "04-multilib" "Repositorio multilib verificado."
+
+fi
+
+
+# ============================================================
+# 5. Sincronizar repositorios
+# ============================================================
+
+if start_step "05-pacman-sync" "Sincronizar repositorios"; then
+
+    log "Sincronizando repositorios de Arch Linux..."
+
+    sudo pacman -Sy --needed
+
+    ok "Repositorios sincronizados."
+
+    complete_step "05-pacman-sync" "Repositorios sincronizados."
+
+fi
+
+
+# ============================================================
+# 6. Comprobar archivo TAR / descargar
+# ============================================================
+
+if start_step "06-archive" "Localizar o descargar Bottle"; then
 
     log "Buscando archivo de Office..."
-
-    # --------------------------------------------------------
-    # Prioridad 1
-    # --------------------------------------------------------
 
     if [[ -f "$LOCAL_ARCHIVE_ENGLISH" ]]; then
 
@@ -273,21 +333,12 @@ if start_step "04-archive" "Localizar o descargar Bottle"; then
         ok "Archivo local encontrado:"
         echo "    $ARCHIVE"
 
-    # --------------------------------------------------------
-    # Prioridad 2
-    # --------------------------------------------------------
-
     elif [[ -f "$LOCAL_ARCHIVE_SHORT" ]]; then
 
         ARCHIVE="$LOCAL_ARCHIVE_SHORT"
 
         ok "Archivo local encontrado:"
         echo "    $ARCHIVE"
-
-    # --------------------------------------------------------
-    # Prioridad 3
-    # Descargar
-    # --------------------------------------------------------
 
     else
 
@@ -312,9 +363,9 @@ if start_step "04-archive" "Localizar o descargar Bottle"; then
         else
 
             log "No se encontró curl ni wget."
-            log "Instalando curl mediante DNF..."
+            log "Instalando curl mediante Pacman..."
 
-            sudo dnf install -y curl
+            sudo pacman -S --needed --noconfirm curl
 
             if command -v curl >/dev/null 2>&1; then
                 DOWNLOAD_TOOL="curl"
@@ -332,7 +383,6 @@ Se necesita:
   o
   wget"
 
-        # Evitar reutilizar accidentalmente un archivo incompleto.
         rm -f "$DOWNLOAD_ARCHIVE"
 
         case "$DOWNLOAD_TOOL" in
@@ -418,10 +468,9 @@ URL:
 
     fi
 
-    # Guardar la ruta del archivo para reanudación.
     printf '%s\n' "$ARCHIVE" > "$STATE_DIR/archive"
 
-    complete_step "04-archive" "Bottle localizado correctamente."
+    complete_step "06-archive" "Bottle localizado correctamente."
 
 else
 
@@ -430,28 +479,28 @@ else
     fi
 
     if [[ -z "$ARCHIVE" || ! -f "$ARCHIVE" ]]; then
+
         die "La etapa de archivo aparece completada pero el archivo
 del Bottle ya no existe.
 
-Elimina el estado de instalación y vuelve a ejecutar el instalador:
+Elimina el estado de instalación y vuelve a ejecutar:
 
   rm -rf \"$STATE_DIR\""
+
     fi
 
 fi
 
 
 # ============================================================
-# 5. No sobrescribir instalaciones existentes
+# 7. No sobrescribir instalación existente
 # ============================================================
 
-if start_step "05-existing-install" "Comprobar instalaciones existentes"; then
+if start_step "07-existing-install" "Comprobar instalaciones existentes"; then
 
     if [[ -e "$WINEPREFIX_PATH" ]]; then
 
-        # Si existe una instalación y además tenemos checkpoint
-        # completo, no es una instalación parcial.
-        if step_done "41-complete"; then
+        if step_done "43-complete"; then
 
             ok "Microsoft Office 365 ya está instalado."
 
@@ -485,37 +534,44 @@ Si se trata de una instalación anterior que quieres eliminar:
 Después elimina el estado:
 
   rm -rf \"$STATE_DIR\""
+
     fi
 
-    complete_step "05-existing-install" "No existe una instalación previa que sobrescribir."
+    complete_step \
+        "07-existing-install" \
+        "No existe una instalación previa que sobrescribir."
 
 fi
 
 
 # ============================================================
-# 6. No sobrescribir extracción existente
+# 8. No sobrescribir extracción existente
 # ============================================================
 
-if start_step "06-existing-extraction" "Comprobar extracción previa"; then
+if start_step "08-existing-extraction" "Comprobar extracción previa"; then
 
     if [[ -e "$BOTTLE_DIR" ]]; then
+
         die "Ya existe el directorio:
 
   $BOTTLE_DIR
 
 Elimina o mueve ese directorio antes de continuar."
+
     fi
 
-    complete_step "06-existing-extraction" "No existe una extracción previa."
+    complete_step \
+        "08-existing-extraction" \
+        "No existe una extracción previa."
 
 fi
 
 
 # ============================================================
-# 7. Comprobar tar y zstd
+# 9. Comprobar tar y zstd
 # ============================================================
 
-if start_step "07-extraction-tools" "Comprobar herramientas de extracción"; then
+if start_step "09-extraction-tools" "Comprobar herramientas de extracción"; then
 
     log "Comprobando herramientas de extracción..."
 
@@ -527,16 +583,18 @@ if start_step "07-extraction-tools" "Comprobar herramientas de extracción"; the
 
     ok "Herramientas de extracción disponibles."
 
-    complete_step "07-extraction-tools" "Herramientas de extracción verificadas."
+    complete_step \
+        "09-extraction-tools" \
+        "Herramientas de extracción verificadas."
 
 fi
 
 
 # ============================================================
-# 8. Extraer Bottle
+# 10. Extraer Bottle
 # ============================================================
 
-if start_step "08-extract" "Extraer Bottle"; then
+if start_step "10-extract" "Extraer Bottle"; then
 
     log "Extrayendo Bottle..."
 
@@ -554,56 +612,110 @@ El archivo TAR no contiene la estructura de Bottle esperada."
 
     ok "Bottle extraído correctamente."
 
-    complete_step "08-extract" "Bottle extraído correctamente."
+    complete_step \
+        "10-extract" \
+        "Bottle extraído correctamente."
 
 fi
 
 
 # ============================================================
-# 9. Instalar dependencias Fedora
+# 11. Instalar dependencias Arch
 # ============================================================
 
-if start_step "09-dependencies" "Instalar dependencias Fedora"; then
+if start_step "11-dependencies" "Instalar dependencias Arch"; then
 
     log "Instalando dependencias..."
 
-    sudo dnf install -y \
-        wine.x86_64 \
-        wine.i686 \
+    sudo pacman -S --needed --noconfirm \
+        wine \
         winetricks \
-        wine-winefonts \
-        vulkan-loader.x86_64 \
-        vulkan-loader.i686 \
+        wine-mono \
+        wine-gecko \
+        vulkan-icd-loader \
+        lib32-vulkan-icd-loader \
         vulkan-tools \
-        samba-winbind \
-        samba-winbind-clients \
+        mesa \
+        lib32-mesa \
+        samba \
+        libwbclient \
         zenity \
         fontconfig \
         desktop-file-utils \
-        gtk3
+        gtk3 \
+        zstd \
+        curl
 
-    ok "Transacción de dependencias completada."
+    ok "Dependencias Arch instaladas."
 
-    complete_step "09-dependencies" "Dependencias Fedora instaladas."
+    complete_step \
+        "11-dependencies" \
+        "Dependencias Arch instaladas."
 
 fi
 
 
 # ============================================================
-# 10. Comprobar Wine32
+# 12. Comprobar Wine32
+#
+# IMPORTANTE:
+#
+# El paquete oficial wine de Arch utiliza actualmente el nuevo
+# WoW64. Este Bottle requiere un ejecutable Wine32 real.
+#
+# Si existe yay o paru, se intenta instalar wine32 desde AUR.
 # ============================================================
 
-if start_step "10-wine32" "Comprobar Wine32"; then
+if start_step "12-wine32" "Comprobar Wine32"; then
 
     log "Comprobando Wine32..."
 
+    if ! command -v "$WINE32_BIN" >/dev/null 2>&1; then
+
+        warn "No se encontró wine32."
+
+        AUR_HELPER=""
+
+        if command -v yay >/dev/null 2>&1; then
+            AUR_HELPER="yay"
+        elif command -v paru >/dev/null 2>&1; then
+            AUR_HELPER="paru"
+        fi
+
+        if [[ -n "$AUR_HELPER" ]]; then
+
+            log "Se encontró el helper AUR: $AUR_HELPER"
+            log "Instalando wine32 desde AUR..."
+
+            "$AUR_HELPER" -S --needed wine32
+
+        else
+
+            die "No se encontró el ejecutable wine32.
+
+El paquete oficial wine de Arch utiliza actualmente WoW64,
+pero este Bottle necesita un Wine32 real.
+
+Instala el paquete AUR:
+
+  wine32
+
+Puedes hacerlo mediante un helper como:
+
+  yay -S wine32
+
+o:
+
+  paru -S wine32
+
+Después vuelve a ejecutar este instalador."
+
+        fi
+
+    fi
+
     command -v "$WINE32_BIN" >/dev/null 2>&1 \
-        || die "No se encontró wine32.
-
-El sistema Fedora no proporciona un ejecutable wine32
-funcional después de instalar Wine.
-
-El Bottle requiere Wine32."
+        || die "wine32 sigue sin estar disponible."
 
     WINE32_VERSION="$(
         "$WINE32_BIN" --version 2>/dev/null || true
@@ -614,30 +726,37 @@ El Bottle requiere Wine32."
 
     echo "    $WINE32_VERSION"
 
-    ok "wine32 disponible."
+    ok "Wine32 disponible."
 
-    printf '%s\n' "$WINE32_VERSION" > "$STATE_DIR/wine32-version"
+    printf '%s\n' "$WINE32_VERSION" \
+        > "$STATE_DIR/wine32-version"
 
-    complete_step "10-wine32" "Wine32 disponible."
+    complete_step \
+        "12-wine32" \
+        "Wine32 disponible."
 
 else
 
     if [[ -f "$STATE_DIR/wine32-version" ]]; then
+
         WINE32_VERSION="$(cat "$STATE_DIR/wine32-version")"
+
     else
+
         WINE32_VERSION="$(
             "$WINE32_BIN" --version 2>/dev/null || true
         )"
+
     fi
 
 fi
 
 
 # ============================================================
-# 11. Comprobar Winetricks
+# 13. Comprobar Winetricks
 # ============================================================
 
-if start_step "11-winetricks" "Comprobar Winetricks"; then
+if start_step "13-winetricks" "Comprobar Winetricks"; then
 
     log "Comprobando Winetricks..."
 
@@ -654,35 +773,39 @@ if start_step "11-winetricks" "Comprobar Winetricks"; then
 
     ok "Winetricks disponible."
 
-    complete_step "11-winetricks" "Winetricks disponible."
+    complete_step \
+        "13-winetricks" \
+        "Winetricks disponible."
 
 fi
 
 
 # ============================================================
-# 12. Comprobar Vulkan
+# 14. Comprobar Vulkan
 # ============================================================
 
-if start_step "12-vulkan" "Comprobar Vulkan"; then
+if start_step "14-vulkan" "Comprobar Vulkan"; then
 
     log "Comprobando Vulkan..."
 
     command -v vulkaninfo >/dev/null 2>&1 \
         || die "No se encontró vulkaninfo.
 
-Instala el paquete vulkan-tools."
+Instala vulkan-tools."
 
     VULKAN_SUMMARY="$(
         vulkaninfo --summary 2>/dev/null || true
     )"
 
     if [[ -z "$VULKAN_SUMMARY" ]]; then
+
         die "Vulkan no respondió correctamente.
 
 DXVK requiere un controlador Vulkan funcional.
 
 Comprueba que tu GPU y su controlador Vulkan estén
 correctamente configurados."
+
     fi
 
     echo "$VULKAN_SUMMARY" \
@@ -692,16 +815,18 @@ correctamente configurados."
 
     ok "Vulkan responde correctamente."
 
-    complete_step "12-vulkan" "Vulkan verificado."
+    complete_step \
+        "14-vulkan" \
+        "Vulkan verificado."
 
 fi
 
 
 # ============================================================
-# 13. Herramientas de integración
+# 15. Comprobar herramientas de integración
 # ============================================================
 
-if start_step "13-integration-tools" "Comprobar herramientas de integración"; then
+if start_step "15-integration-tools" "Comprobar herramientas de integración"; then
 
     log "Comprobando herramientas del sistema..."
 
@@ -716,27 +841,31 @@ if start_step "13-integration-tools" "Comprobar herramientas de integración"; t
     do
 
         if ! command -v "$command_name" >/dev/null 2>&1; then
+
             die "No se encontró el comando requerido:
 
   $command_name
 
-Comprueba las dependencias de Fedora antes de continuar."
+Comprueba las dependencias de Arch Linux."
+
         fi
 
     done
 
     ok "Herramientas de integración disponibles."
 
-    complete_step "13-integration-tools" "Herramientas de integración verificadas."
+    complete_step \
+        "15-integration-tools" \
+        "Herramientas de integración verificadas."
 
 fi
 
 
 # ============================================================
-# 14. Instalar Bottle
+# 16. Instalar Bottle
 # ============================================================
 
-if start_step "14-install-bottle" "Instalar Bottle"; then
+if start_step "16-install-bottle" "Instalar Bottle"; then
 
     log "Copiando Bottle a:
 
@@ -748,16 +877,18 @@ if start_step "14-install-bottle" "Instalar Bottle"; then
 
     ok "Bottle copiado."
 
-    complete_step "14-install-bottle" "Bottle instalado."
+    complete_step \
+        "16-install-bottle" \
+        "Bottle instalado."
 
 fi
 
 
 # ============================================================
-# 15. Corregir propietario y permisos
+# 17. Corregir propietario y permisos
 # ============================================================
 
-if start_step "15-permissions" "Corregir propietario y permisos"; then
+if start_step "17-permissions" "Corregir propietario y permisos"; then
 
     log "Corrigiendo propietario y permisos..."
 
@@ -771,16 +902,18 @@ if start_step "15-permissions" "Corregir propietario y permisos"; then
 
     ok "Propietario y permisos corregidos."
 
-    complete_step "15-permissions" "Propietario y permisos configurados."
+    complete_step \
+        "17-permissions" \
+        "Propietario y permisos configurados."
 
 fi
 
 
 # ============================================================
-# 16. Comprobar arquitectura
+# 18. Comprobar arquitectura
 # ============================================================
 
-if start_step "16-architecture" "Comprobar arquitectura del Bottle"; then
+if start_step "18-architecture" "Comprobar arquitectura del Bottle"; then
 
     log "Comprobando arquitectura del Bottle..."
 
@@ -793,27 +926,32 @@ if start_step "16-architecture" "Comprobar arquitectura del Bottle"; then
 Se esperaba:
 
   #arch=win32"
+
     fi
 
     ok "Bottle confirmado como Wine32 puro."
 
-    complete_step "16-architecture" "Arquitectura Wine32 confirmada."
+    complete_step \
+        "18-architecture" \
+        "Arquitectura Wine32 confirmada."
 
 fi
 
 
 # ============================================================
-# 17. Configuración explícita Wine32
+# 19. Configuración explícita Wine32
 # ============================================================
 
-if start_step "17-wine-environment" "Configurar entorno Wine32"; then
+if start_step "19-wine-environment" "Configurar entorno Wine32"; then
 
     export WINEPREFIX="$WINEPREFIX_PATH"
     export WINEARCH="win32"
 
     ok "WINEPREFIX y WINEARCH configurados."
 
-    complete_step "17-wine-environment" "Entorno Wine32 configurado."
+    complete_step \
+        "19-wine-environment" \
+        "Entorno Wine32 configurado."
 
 else
 
@@ -824,10 +962,10 @@ fi
 
 
 # ============================================================
-# 18. Reconstruir dosdevices
+# 20. Reconstruir dosdevices
 # ============================================================
 
-if start_step "18-dosdevices" "Reconstruir unidades Wine"; then
+if start_step "20-dosdevices" "Reconstruir unidades Wine"; then
 
     log "Reconstruyendo unidades Wine..."
 
@@ -855,16 +993,18 @@ if start_step "18-dosdevices" "Reconstruir unidades Wine"; then
 
     ok "Unidades Wine reconstruidas."
 
-    complete_step "18-dosdevices" "Unidades Wine configuradas."
+    complete_step \
+        "20-dosdevices" \
+        "Unidades Wine configuradas."
 
 fi
 
 
 # ============================================================
-# 19. Crear estructura del usuario Wine
+# 21. Crear estructura del usuario Wine
 # ============================================================
 
-if start_step "19-wine-user" "Crear estructura del usuario Wine"; then
+if start_step "21-wine-user" "Crear estructura del usuario Wine"; then
 
     log "Creando directorios del usuario Wine..."
 
@@ -876,18 +1016,20 @@ if start_step "19-wine-user" "Crear estructura del usuario Wine"; then
 
     ok "Estructura del usuario creada."
 
-    complete_step "19-wine-user" "Estructura del usuario Wine creada."
+    complete_step \
+        "21-wine-user" \
+        "Estructura del usuario Wine creada."
 
 fi
 
 
 # ============================================================
-# 20. Crear directorios XDG
+# 22. Crear directorios XDG
 # ============================================================
 
-if start_step "20-xdg" "Crear directorios XDG"; then
+if start_step "22-xdg" "Crear directorios XDG"; then
 
-    log "Creando directorios de integración con Fedora..."
+    log "Creando directorios de integración..."
 
     mkdir -p \
         "$LOCAL_BIN"
@@ -903,16 +1045,18 @@ if start_step "20-xdg" "Crear directorios XDG"; then
 
     ok "Directorios XDG preparados."
 
-    complete_step "20-xdg" "Directorios XDG preparados."
+    complete_step \
+        "22-xdg" \
+        "Directorios XDG preparados."
 
 fi
 
 
 # ============================================================
-# 21. Instalar fuentes de Office
+# 23. Instalar fuentes de Office
 # ============================================================
 
-if start_step "21-office-fonts" "Instalar fuentes de Office"; then
+if start_step "23-office-fonts" "Instalar fuentes de Office"; then
 
     log "Instalando fuentes incluidas en el Bottle..."
 
@@ -946,18 +1090,28 @@ Se continuará sin fuentes adicionales del TAR."
 
     ok "Caché de fuentes actualizado."
 
-    complete_step "21-office-fonts" "Fuentes de Office configuradas."
+    complete_step \
+        "23-office-fonts" \
+        "Fuentes de Office configuradas."
 
 fi
 
 
 # ============================================================
-# 22. Reparar fuentes bitmap Wine
+# 24. Reparar fuentes bitmap Wine
+#
+# En Arch las fuentes Wine pueden estar en distintas rutas
+# dependiendo del paquete instalado.
 # ============================================================
 
-if start_step "22-wine-fonts" "Reparar fuentes bitmap Wine"; then
+if start_step "24-wine-fonts" "Reparar fuentes bitmap Wine"; then
 
     log "Comprobando fuentes bitmap Wine..."
+
+    WINE_FONT_DIRS=(
+        "/usr/share/wine/fonts"
+        "/usr/share/wine/wine/fonts"
+    )
 
     for font in \
         coure.fon \
@@ -967,39 +1121,52 @@ if start_step "22-wine-fonts" "Reparar fuentes bitmap Wine"; then
     do
 
         TARGET="$WINEPREFIX_PATH/drive_c/windows/Fonts/$font"
-        SOURCE="$WINE_FONT_DIR/$font"
 
         if [[ -f "$TARGET" ]]; then
             ok "$font ya existe."
             continue
         fi
 
-        if [[ -f "$SOURCE" ]]; then
+        FOUND_SOURCE=""
+
+        for font_dir in "${WINE_FONT_DIRS[@]}"
+        do
+
+            if [[ -f "$font_dir/$font" ]]; then
+                FOUND_SOURCE="$font_dir/$font"
+                break
+            fi
+
+        done
+
+        if [[ -n "$FOUND_SOURCE" ]]; then
 
             cp -f \
-                "$SOURCE" \
+                "$FOUND_SOURCE" \
                 "$TARGET"
 
-            ok "$font copiada desde $SOURCE"
+            ok "$font copiada desde $FOUND_SOURCE"
 
         else
 
-            warn "No se encontró $SOURCE"
+            warn "No se encontró $font en las rutas conocidas."
 
         fi
 
     done
 
-    complete_step "22-wine-fonts" "Fuentes bitmap Wine verificadas."
+    complete_step \
+        "24-wine-fonts" \
+        "Fuentes bitmap Wine verificadas."
 
 fi
 
 
 # ============================================================
-# 23. Instalar launchers originales
+# 25. Instalar launchers originales
 # ============================================================
 
-if start_step "23-original-launchers" "Instalar launchers originales"; then
+if start_step "25-original-launchers" "Instalar launchers originales"; then
 
     log "Instalando launchers originales..."
 
@@ -1022,18 +1189,20 @@ if start_step "23-original-launchers" "Instalar launchers originales"; then
 
     ok "Launchers originales copiados."
 
-    complete_step "23-original-launchers" "Launchers originales instalados."
+    complete_step \
+        "25-original-launchers" \
+        "Launchers originales instalados."
 
 fi
 
 
 # ============================================================
-# 24. Crear wrappers portables
+# 26. Crear wrappers portables
 # ============================================================
 
-if start_step "24-portable-wrappers" "Crear wrappers portables"; then
+if start_step "26-portable-wrappers" "Crear wrappers portables"; then
 
-    log "Configurando wrappers portables para esta instalación..."
+    log "Configurando wrappers portables para Arch Linux..."
 
 
     # --------------------------------------------------------
@@ -1048,7 +1217,7 @@ if start_step "24-portable-wrappers" "Crear wrappers portables"; then
 # ============================================================
 
 WINEPREFIX="$HOME/.Microsoft_Office_365"
-WINESERVER="/usr/bin/wineserver"
+WINESERVER="$(command -v wineserver || echo /usr/bin/wineserver)"
 
 # ------------------------------------------------------------
 # Modo automático / silencioso
@@ -1071,12 +1240,11 @@ if [[ "${1:-}" == "--silent" ]] || [[ "${1:-}" == "--auto" ]]; then
 
 else
 
-    zenity --question \
+    if ! zenity --question \
         --title="Clean Wine / Office" \
         --text="Do you want to close all Wine and Microsoft Office processes?\n\nAny unsaved work will be lost." \
         --width=420
-
-    if [[ "$?" -ne 0 ]]; then
+    then
         exit 0
     fi
 
@@ -1137,7 +1305,7 @@ EOF
 
 
     # --------------------------------------------------------
-    # Función para crear wrappers Office
+    # Crear wrappers Office
     # --------------------------------------------------------
 
     create_office_wrapper() {
@@ -1194,10 +1362,6 @@ EOF
     }
 
 
-    # --------------------------------------------------------
-    # Crear launchers
-    # --------------------------------------------------------
-
     create_office_wrapper \
         "word365.sh" \
         "WINWORD.EXE"
@@ -1222,10 +1386,6 @@ EOF
         "publisher365.sh" \
         "MSPUB.EXE"
 
-
-    # --------------------------------------------------------
-    # Verificar wrappers
-    # --------------------------------------------------------
 
     WRAPPERS=(
         "$LOCAL_BIN/word365.sh"
@@ -1252,16 +1412,18 @@ EOF
 
     ok "Wrappers completados."
 
-    complete_step "24-portable-wrappers" "Wrappers portables configurados."
+    complete_step \
+        "26-portable-wrappers" \
+        "Wrappers portables configurados."
 
 fi
 
 
 # ============================================================
-# 25. Validar launchers
+# 27. Validar launchers
 # ============================================================
 
-if start_step "25-launcher-validation" "Validar launchers"; then
+if start_step "27-launcher-validation" "Validar launchers"; then
 
     log "Validando launchers..."
 
@@ -1309,16 +1471,18 @@ if start_step "25-launcher-validation" "Validar launchers"; then
 
     ok "Todos los wrappers utilizan wine32 y limpieza automática."
 
-    complete_step "25-launcher-validation" "Launchers validados."
+    complete_step \
+        "27-launcher-validation" \
+        "Launchers validados."
 
 fi
 
 
 # ============================================================
-# 26. Instalar archivos .desktop
+# 28. Instalar archivos .desktop
 # ============================================================
 
-if start_step "26-desktops" "Instalar accesos del menú"; then
+if start_step "28-desktops" "Instalar accesos del menú"; then
 
     log "Instalando accesos del menú..."
 
@@ -1339,16 +1503,18 @@ if start_step "26-desktops" "Instalar accesos del menú"; then
 
     ok "Archivos .desktop copiados."
 
-    complete_step "26-desktops" "Archivos .desktop instalados."
+    complete_step \
+        "28-desktops" \
+        "Archivos .desktop instalados."
 
 fi
 
 
 # ============================================================
-# 27. Corregir rutas Exec
+# 29. Corregir rutas Exec
 # ============================================================
 
-if start_step "27-desktop-paths" "Adaptar rutas Exec"; then
+if start_step "29-desktop-paths" "Adaptar rutas Exec"; then
 
     log "Adaptando archivos .desktop al entorno por usuario..."
 
@@ -1361,16 +1527,18 @@ if start_step "27-desktop-paths" "Adaptar rutas Exec"; then
 
     done
 
-    complete_step "27-desktop-paths" "Rutas Exec adaptadas."
+    complete_step \
+        "29-desktop-paths" \
+        "Rutas Exec adaptadas."
 
 fi
 
 
 # ============================================================
-# 28. Validar archivos .desktop
+# 30. Validar archivos .desktop
 # ============================================================
 
-if start_step "28-desktop-validation" "Validar accesos del menú"; then
+if start_step "30-desktop-validation" "Validar accesos del menú"; then
 
     log "Validando accesos del menú..."
 
@@ -1415,16 +1583,18 @@ Archivo:
 
     ok "Archivos .desktop correctamente vinculados."
 
-    complete_step "28-desktop-validation" "Archivos .desktop validados."
+    complete_step \
+        "30-desktop-validation" \
+        "Archivos .desktop validados."
 
 fi
 
 
 # ============================================================
-# 29. Instalar iconos
+# 31. Instalar iconos
 # ============================================================
 
-if start_step "29-icons" "Instalar iconos"; then
+if start_step "31-icons" "Instalar iconos"; then
 
     log "Instalando iconos..."
 
@@ -1449,27 +1619,25 @@ if start_step "29-icons" "Instalar iconos"; then
 
     fi
 
-    complete_step "29-icons" "Iconos procesados."
+    complete_step \
+        "31-icons" \
+        "Iconos procesados."
 
 fi
 
 
 # ============================================================
-# 30. Actualizar integración del escritorio
+# 32. Actualizar integración del escritorio
 # ============================================================
 
-if start_step "30-desktop-integration" "Actualizar integración del escritorio"; then
+if start_step "32-desktop-integration" "Actualizar integración del escritorio"; then
 
     log "Actualizando bases de datos del escritorio..."
 
-    if command -v update-desktop-database >/dev/null 2>&1; then
-
-        update-desktop-database \
-            "$APPLICATIONS_DIR" \
-            >/dev/null 2>&1 \
-            || true
-
-    fi
+    update-desktop-database \
+        "$APPLICATIONS_DIR" \
+        >/dev/null 2>&1 \
+        || true
 
     if command -v gtk-update-icon-cache >/dev/null 2>&1; then
 
@@ -1482,16 +1650,18 @@ if start_step "30-desktop-integration" "Actualizar integración del escritorio";
 
     ok "Integración del escritorio actualizada."
 
-    complete_step "30-desktop-integration" "Integración del escritorio actualizada."
+    complete_step \
+        "32-desktop-integration" \
+        "Integración del escritorio actualizada."
 
 fi
 
 
 # ============================================================
-# 31. Instalar DXVK x32
+# 33. Instalar DXVK x32
 # ============================================================
 
-if start_step "31-dxvk" "Instalar DXVK x32"; then
+if start_step "33-dxvk" "Instalar DXVK x32"; then
 
     log "Instalando DXVK para el Bottle Wine32..."
 
@@ -1504,16 +1674,18 @@ if start_step "31-dxvk" "Instalar DXVK x32"; then
 
     ok "DXVK instalado."
 
-    complete_step "31-dxvk" "DXVK x32 instalado."
+    complete_step \
+        "33-dxvk" \
+        "DXVK x32 instalado."
 
 fi
 
 
 # ============================================================
-# 32. Verificar DLL de DXVK
+# 34. Verificar DLL de DXVK
 # ============================================================
 
-if start_step "32-dxvk-dlls" "Verificar DLL de DXVK"; then
+if start_step "34-dxvk-dlls" "Verificar DLL de DXVK"; then
 
     log "Verificando DLL de DXVK..."
 
@@ -1544,16 +1716,18 @@ La instalación de DXVK no quedó completa."
 
     ok "DLL de DXVK x32 presentes."
 
-    complete_step "32-dxvk-dlls" "DLL de DXVK verificadas."
+    complete_step \
+        "34-dxvk-dlls" \
+        "DLL de DXVK verificadas."
 
 fi
 
 
 # ============================================================
-# 33. Verificar overrides
+# 35. Verificar overrides
 # ============================================================
 
-if start_step "33-dxvk-overrides" "Verificar overrides de DXVK"; then
+if start_step "35-dxvk-overrides" "Verificar overrides de DXVK"; then
 
     log "Verificando overrides de DXVK..."
 
@@ -1581,7 +1755,6 @@ if start_step "33-dxvk-overrides" "Verificar overrides de DXVK"; then
 
         if [[ "$OVERRIDE_VALUE" != "native" ]]; then
 
-            # Fallback flexible para distintos formatos de Wine.
             if ! grep -Eiq \
                 "\"\*?$dll\"=\"native\"|\"\\*$dll\"=\"native\"" \
                 "$WINEPREFIX_PATH/user.reg"
@@ -1599,16 +1772,18 @@ if start_step "33-dxvk-overrides" "Verificar overrides de DXVK"; then
 
     ok "Overrides DXVK confirmados."
 
-    complete_step "33-dxvk-overrides" "Overrides DXVK verificados."
+    complete_step \
+        "35-dxvk-overrides" \
+        "Overrides DXVK verificados."
 
 fi
 
 
 # ============================================================
-# 34. Habilitar aceleración por hardware de Office
+# 36. Configurar aceleración gráfica de Office
 # ============================================================
 
-if start_step "34-office-graphics" "Configurar aceleración de Office"; then
+if start_step "36-office-graphics" "Configurar aceleración de Office"; then
 
     log "Configurando aceleración gráfica de Office..."
 
@@ -1662,17 +1837,17 @@ Se esperaba:
     ok "Office no tiene deshabilitada la aceleración por hardware."
 
     complete_step \
-        "34-office-graphics" \
+        "36-office-graphics" \
         "Configuración gráfica de Office establecida."
 
 fi
 
 
 # ============================================================
-# 35. Verificar configuración gráfica
+# 37. Verificar configuración gráfica
 # ============================================================
 
-if start_step "35-office-graphics-validation" "Verificar configuración gráfica"; then
+if start_step "37-office-graphics-validation" "Verificar configuración gráfica"; then
 
     log "Verificando configuración gráfica de Office..."
 
@@ -1725,21 +1900,22 @@ Se esperaba:
     ok "Office no tiene deshabilitada la aceleración por hardware."
 
     complete_step \
-        "35-office-graphics-validation" \
+        "37-office-graphics-validation" \
         "Configuración gráfica verificada."
 
 fi
 
 
 # ============================================================
-# 36. Reiniciar wineserver
+# 38. Reiniciar wineserver
 # ============================================================
 
-if start_step "36-wineserver" "Reiniciar wineserver"; then
+if start_step "38-wineserver" "Reiniciar wineserver"; then
 
     log "Reiniciando wineserver..."
 
-    "$WINE32_BIN" \
+    WINEPREFIX="$WINEPREFIX_PATH" \
+        "$WINE32_BIN" \
         wineserver \
         -k \
         >/dev/null 2>&1 \
@@ -1749,16 +1925,18 @@ if start_step "36-wineserver" "Reiniciar wineserver"; then
 
     ok "wineserver reiniciado."
 
-    complete_step "36-wineserver" "wineserver reiniciado."
+    complete_step \
+        "38-wineserver" \
+        "wineserver reiniciado."
 
 fi
 
 
 # ============================================================
-# 37. Comprobar Microsoft Word
+# 39. Comprobar Microsoft Word
 # ============================================================
 
-if start_step "37-word" "Comprobar Microsoft Word"; then
+if start_step "39-word" "Comprobar Microsoft Word"; then
 
     log "Comprobando Microsoft Word..."
 
@@ -1772,16 +1950,18 @@ if start_step "37-word" "Comprobar Microsoft Word"; then
 
     ok "WINWORD.EXE encontrado."
 
-    complete_step "37-word" "Microsoft Word encontrado."
+    complete_step \
+        "39-word" \
+        "Microsoft Word encontrado."
 
 fi
 
 
 # ============================================================
-# 38. Asociaciones MIME
+# 40. Asociaciones MIME
 # ============================================================
 
-if start_step "38-mime" "Configurar asociaciones MIME"; then
+if start_step "40-mime" "Configurar asociaciones MIME"; then
 
     log "Configurando asociaciones MIME..."
 
@@ -1823,16 +2003,18 @@ if start_step "38-mime" "Configurar asociaciones MIME"; then
 
     ok "Asociaciones MIME configuradas."
 
-    complete_step "38-mime" "Asociaciones MIME configuradas."
+    complete_step \
+        "40-mime" \
+        "Asociaciones MIME configuradas."
 
 fi
 
 
 # ============================================================
-# 39. Actualizar fontconfig
+# 41. Actualizar fontconfig
 # ============================================================
 
-if start_step "39-font-cache" "Actualizar caché de fuentes"; then
+if start_step "41-font-cache" "Actualizar caché de fuentes"; then
 
     log "Actualizando caché final de fuentes..."
 
@@ -1840,16 +2022,18 @@ if start_step "39-font-cache" "Actualizar caché de fuentes"; then
 
     ok "Caché final actualizado."
 
-    complete_step "39-font-cache" "Caché final de fuentes actualizado."
+    complete_step \
+        "41-font-cache" \
+        "Caché final de fuentes actualizado."
 
 fi
 
 
 # ============================================================
-# 40. Estado final
+# 42. Estado final
 # ============================================================
 
-if start_step "40-final" "Preparar resumen final"; then
+if start_step "42-final" "Preparar resumen final"; then
 
     echo
     echo "============================================================"
@@ -1857,13 +2041,10 @@ if start_step "40-final" "Preparar resumen final"; then
     echo "============================================================"
     echo
     echo "Sistema:"
-    echo "  $FEDORA_NAME"
+    echo "  $ARCH_NAME"
     echo
     echo "Archivo utilizado:"
     echo "  $ARCHIVE"
-    echo
-    echo "Compatibilidad:"
-    echo "  Fedora verificado por capacidades y dependencias"
     echo
     echo "Wine:"
     echo "  $WINE32_VERSION"
@@ -1903,13 +2084,15 @@ if start_step "40-final" "Preparar resumen final"; then
     echo "============================================================"
     echo
 
-    complete_step "40-final" "Resumen final preparado."
+    complete_step \
+        "42-final" \
+        "Resumen final preparado."
 
 fi
 
 
 # ============================================================
-# 41. Marcar instalación como completada
+# 43. Marcar instalación como completada
 #
 # IMPORTANTE:
 #
@@ -1920,9 +2103,9 @@ fi
 # ejecución intente sobrescribirlo.
 # ============================================================
 
-if start_step "41-complete" "Marcar instalación como completada"; then
+if start_step "43-complete" "Marcar instalación como completada"; then
 
-    mark_step_done "41-complete"
+    mark_step_done "43-complete"
 
     echo
     echo "============================================================"
@@ -1950,10 +2133,9 @@ fi
 
 
 # ============================================================
-# 42. Prueba opcional de Word
+# 44. Prueba opcional de Word
 #
-# Esta etapa se ejecuta incluso cuando 41-complete ya existía,
-# salvo que SKIP_WORD_TEST=1.
+# SKIP_WORD_TEST=1 permite terminar sin lanzar Word.
 # ============================================================
 
 if [[ "${SKIP_WORD_TEST:-0}" != "1" ]]; then
